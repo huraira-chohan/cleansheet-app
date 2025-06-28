@@ -1,153 +1,122 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
 import re
 from dateutil import parser
+from urllib.parse import urlparse
 from scipy import stats
 from io import StringIO
 import requests
 
-# ---- SETUP ----
-st.set_page_config(page_title="CleanSheet", layout="wide")
-st.title("🧹 CleanSheet - Simple CSV Cleaner")
-st.markdown("Upload a dataset and choose cleaning steps. No AI or API keys needed.")
+st.set_page_config("CleanSheet Final", layout="wide")
+st.title("🧹 CleanSheet v10 – Final Version")
+st.caption("A no-error, fully-featured CSV data cleaner (no AI needed)")
 
+# Predefined nulls
 NULL_VALUES = ["", "na", "n/a", "null", "none", "-", "--", "NaN", "NAN", "?", "unknown"]
 
-# ---- CLEANING HELPERS ----
-def clean_text(x):
-    return str(x).strip().title() if pd.notnull(x) else x
-
+# Functions
+def clean_text(x): return str(x).strip().title() if pd.notnull(x) else x
 def normalize_gender(g):
     g = str(g).strip().lower()
     return "Male" if g in ["m", "male"] else "Female" if g in ["f", "female"] else "Other"
-
-def convert_to_numeric(x):
+def convert_to_numeric(x): 
     try: return float(re.sub(r"[^0-9.]+", "", str(x)))
     except: return np.nan
-
-def parse_any_date(date_str):
-    try: return parser.parse(str(date_str), fuzzy=True)
+def parse_any_date(x):
+    try: return parser.parse(str(x), fuzzy=True)
     except: return np.nan
-
-def is_valid_email(email):
-    return bool(re.match(r'^[\w\.-]+@[\w\.-]+\.[a-zA-Z]{2,}$', str(email)))
-
-def is_valid_url(url):
-    try:
-        from urllib.parse import urlparse
-        result = urlparse(url)
-        return all([result.scheme, result.netloc])
+def is_valid_email(x): return bool(re.match(r'^[\w\.-]+@[\w\.-]+\.[a-zA-Z]{2,}$', str(x)))
+def is_valid_url(x):
+    try: return all([urlparse(x).scheme, urlparse(x).netloc])
     except: return False
-
 def remove_outliers_zscore(series, threshold=3):
     if pd.api.types.is_numeric_dtype(series):
-        non_na = series.dropna()
-        z = np.abs(stats.zscore(non_na))
-        return series.where(series.isin(non_na[z < threshold]))
+        z = np.abs(stats.zscore(series.dropna()))
+        return series.where(z < threshold)
     return series
 
-# ---- FILE UPLOAD ----
-st.sidebar.subheader("📂 Load Dataset")
-if st.sidebar.button("Use Titanic Sample"):
+# Upload file
+st.sidebar.markdown("### 📂 Load CSV")
+use_sample = st.sidebar.button("📥 Load Titanic Sample")
+uploaded = st.sidebar.file_uploader("Upload your CSV file", type=["csv"])
+
+if use_sample:
     url = "https://raw.githubusercontent.com/datasciencedojo/datasets/master/titanic.csv"
-    uploaded_file = StringIO(requests.get(url).text)
-    uploaded_file.name = "titanic.csv"
-else:
-    uploaded_file = st.sidebar.file_uploader("Upload your CSV file", type=["csv"])
+    uploaded = StringIO(requests.get(url).text)
 
-if uploaded_file:
-    df = pd.read_csv(uploaded_file)
+if uploaded:
+    df = pd.read_csv(uploaded)
     df.replace(NULL_VALUES, np.nan, inplace=True)
+    original_df = df.copy()
 
-    # ---- FILTER ROWS ----
-    st.sidebar.subheader("🔎 Filter Rows")
-    filter_column = st.sidebar.selectbox("Select column to filter", ["None"] + list(df.columns))
-    if filter_column != "None":
-        unique_vals = df[filter_column].dropna().unique()
-        selected_vals = st.sidebar.multiselect("Choose values to keep", unique_vals)
-        if selected_vals:
-            df = df[df[filter_column].isin(selected_vals)]
+    st.subheader("🔍 Filter & Sort Rows")
+    col1, col2 = st.columns(2)
+    with col1:
+        filter_col = st.selectbox("Choose a column to filter", df.columns)
+        filter_val = st.text_input("Value to keep (exact match)")
+        if filter_val:
+            df = df[df[filter_col].astype(str) == filter_val]
 
-    # ---- COLUMN DROPPING ----
-    st.sidebar.subheader("🗑️ Drop Columns")
-    cols_to_drop = st.sidebar.multiselect("Columns to drop", df.columns)
-    df.drop(columns=cols_to_drop, inplace=True)
+    with col2:
+        sort_col = st.selectbox("Sort by column", df.columns)
+        asc = st.radio("Order", ["Ascending", "Descending"], horizontal=True)
+        df = df.sort_values(by=sort_col, ascending=asc == "Ascending")
 
-    # ---- COLUMN RENAMING ----
-    st.sidebar.subheader("✏️ Rename Columns")
-    rename_dict = {}
+    st.subheader("✂️ Drop or Rename Columns")
+    with st.expander("🔻 Drop Columns"):
+        drop_cols = st.multiselect("Select columns to drop", df.columns)
+        if drop_cols:
+            df.drop(columns=drop_cols, inplace=True)
+
+    with st.expander("✏️ Rename Columns"):
+        rename_map = {}
+        for col in df.columns:
+            new_name = st.text_input(f"Rename `{col}` to", col)
+            if new_name and new_name != col:
+                rename_map[col] = new_name
+        if rename_map:
+            df.rename(columns=rename_map, inplace=True)
+
+    st.subheader("➕ Merge Columns")
+    with st.expander("🧬 Combine Columns"):
+        merge_cols = st.multiselect("Select columns to merge", df.columns)
+        new_col_name = st.text_input("New column name", "merged_column")
+        separator = st.text_input("Separator", " ")
+        if merge_cols and new_col_name:
+            df[new_col_name] = df[merge_cols].astype(str).apply(lambda row: separator.join(row), axis=1)
+
+    st.subheader("🧼 Clean Individual Columns")
     for col in df.columns:
-        new_name = st.sidebar.text_input(f"Rename '{col}' to:", value=col, key=f"rename_{col}")
-        rename_dict[col] = new_name
-    df.rename(columns=rename_dict, inplace=True)
+        st.markdown(f"**🔧 `{col}`**")
+        clean_option = st.selectbox(f"Cleaning for `{col}`",
+            ["None", "Text Normalize", "Numeric Convert", "Date Parse", "Normalize Gender", "Validate Email", "Validate URL", "Remove Outliers"],
+            key=f"clean_{col}")
+        
+        if clean_option == "Text Normalize":
+            df[col] = df[col].apply(clean_text)
+        elif clean_option == "Numeric Convert":
+            df[col] = df[col].apply(convert_to_numeric)
+        elif clean_option == "Date Parse":
+            df[col] = df[col].apply(parse_any_date)
+        elif clean_option == "Normalize Gender":
+            df[col] = df[col].apply(normalize_gender)
+        elif clean_option == "Validate Email":
+            df[f"{col}_valid"] = df[col].apply(is_valid_email)
+        elif clean_option == "Validate URL":
+            df[f"{col}_valid"] = df[col].apply(is_valid_url)
+        elif clean_option == "Remove Outliers":
+            df[col] = remove_outliers_zscore(df[col])
 
-    # ---- COLUMN MERGING ----
-    st.sidebar.subheader("🔗 Merge Columns")
-    merge_cols = st.sidebar.multiselect("Select columns to merge (into one)", df.columns)
-    separator = st.sidebar.text_input("Separator for merged column", " | ")
-    new_col_name = st.sidebar.text_input("Name of new merged column", "MergedColumn")
-    if st.sidebar.button("Merge Columns"):
-        df[new_col_name] = df[merge_cols].astype(str).agg(separator.join, axis=1)
-
-    st.subheader("📄 Data Preview")
-    view_option = st.radio("View", ["Top 5", "Top 50", "All"], horizontal=True)
-    if view_option == "Top 5":
+    st.subheader("🧾 Final Preview & Download")
+    view_opt = st.radio("Rows to view", ["Top 5", "Top 50", "All"], horizontal=True)
+    if view_opt == "Top 5":
         st.dataframe(df.head())
-    elif view_option == "Top 50":
+    elif view_opt == "Top 50":
         st.dataframe(df.head(50))
     else:
         st.dataframe(df)
 
-    # ---- COLUMN CLEANING ----
-    st.subheader("🛠️ Column Cleaning Options")
-    col_config = {}
-    with st.form("cleaning_form"):
-        for col in df.columns:
-            with st.expander(f"⚙️ {col}"):
-                action = st.selectbox(
-                    "Cleaning method",
-                    ["none", "clean_text", "numeric", "date", "gender", "email_validate", "url_validate"],
-                    key=f"action_{col}"
-                )
-                fill = st.selectbox("Missing value strategy", ["none", "drop", "fill_mean", "fill_median", "fill_mode"], key=f"fill_{col}")
-                outliers = st.checkbox("Remove outliers (Z-score)", value=False, key=f"outlier_{col}")
-                col_config[col] = (action, fill, outliers)
-        submitted = st.form_submit_button("🧼 Clean My Data")
-
-    if submitted:
-        for col, (action, fill, outliers) in col_config.items():
-            if action == "clean_text":
-                df[col] = df[col].apply(clean_text)
-            elif action == "numeric":
-                df[col] = df[col].apply(convert_to_numeric)
-            elif action == "date":
-                df[col] = df[col].apply(parse_any_date)
-            elif action == "gender":
-                df[col] = df[col].apply(normalize_gender)
-            elif action == "email_validate":
-                df[col + "_valid"] = df[col].apply(is_valid_email)
-            elif action == "url_validate":
-                df[col + "_valid"] = df[col].apply(is_valid_url)
-
-            if fill == "drop":
-                df = df[df[col].notna()]
-            elif fill == "fill_mean" and pd.api.types.is_numeric_dtype(df[col]):
-                df[col].fillna(df[col].mean(), inplace=True)
-            elif fill == "fill_median" and pd.api.types.is_numeric_dtype(df[col]):
-                df[col].fillna(df[col].median(), inplace=True)
-            elif fill == "fill_mode":
-                mode = df[col].mode().iloc[0] if not df[col].mode().empty else None
-                df[col].fillna(mode, inplace=True)
-
-            if outliers:
-                df[col] = remove_outliers_zscore(df[col])
-
-        st.success("✅ Data cleaned!")
-        st.dataframe(df.head())
-
-        csv = df.to_csv(index=False).encode("utf-8")
-        st.download_button("📥 Download Cleaned CSV", data=csv, file_name="cleansheet_cleaned.csv", mime="text/csv")
+    st.download_button("📥 Download Cleaned CSV", data=df.to_csv(index=False), file_name="cleaned_data.csv", mime="text/csv")
 else:
-    st.info("📌 Upload a CSV file or load a sample from the sidebar to get started.")
+    st.warning("📄 Please upload a CSV file or load the Titanic dataset to begin.")
