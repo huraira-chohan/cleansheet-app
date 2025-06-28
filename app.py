@@ -156,7 +156,7 @@ handle_outliers = st.checkbox(
                 value=False, 
                 key=f"outlier_{col}"
             ) if is_numeric else False
-            col_config[col] = (clean_type, fill_missing, handle_outliers)
+col_config[col] = (clean_type, fill_missing, handle_outliers)
 
 submit = st.form_submit_button("🧼 Clean My Data")
 
