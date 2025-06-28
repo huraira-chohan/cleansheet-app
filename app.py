@@ -12,7 +12,9 @@ import requests
 from io import StringIO
 from openai import OpenAI
 
-openai.api_key = st.text_input("🔑 Enter your OpenAI API Key", type="password")
+# Get OpenAI API key from user
+api_key = st.text_input("🔑 Enter your OpenAI API Key", type="password")
+client = OpenAI(api_key=api_key)
 
 st.set_page_config(page_title="CleanSheet v9 - Smartest Data Cleaner", layout="wide")
 
@@ -26,9 +28,9 @@ def clean_text(x):
 
 def normalize_gender(g):
     g = str(g).strip().lower()
-    if g in ["m", "male","M"]:
+    if g in ["m", "male", "M"]:
         return "Male"
-    elif g in ["f", "female","F"]:
+    elif g in ["f", "female", "F"]:
         return "Female"
     return "Other"
 
@@ -89,18 +91,13 @@ You are a data cleaning assistant. A user has uploaded the following dataset. He
 
 Suggest how to clean each column. Be practical. Say if it should be normalized, date-parsed, outlier-removed, email-validated, dropped, or filled. Be concise.
 """
-
     try:
-       client = openai.OpenAI(api_key=openai.api_key)
-
-response = client.chat.completions.create(
-    model="gpt-4",
-    messages=[{"role": "user", "content": prompt}],
-    temperature=0.3
-)
-
-return response.choices[0].message.content.strip()
-
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3
+        )
+        return response.choices[0].message.content.strip()
     except Exception as e:
         return f"❌ Error: {str(e)}"
 
@@ -146,20 +143,13 @@ if uploaded_file:
             sample_vals = df[col].dropna().astype(str).head(10).tolist()
             default_type = "none"
             for val in sample_vals:
-                if re.match(r'^[\w\.-]+@[\w\.-]+\.[a-zA-Z]{2,}$', val):
-                    default_type = "email_validate"; break
-                elif re.match(r'https?://', val):
-                    default_type = "url_validate"; break
-                elif re.search(r'\d{1,4}[-/\s][A-Za-z]{3,}|\d{1,4}[-/\s]\d{1,2}', val):
-                    default_type = "date"; break
-                elif val.strip().lower() in ["m", "f", "male", "female"]:
-                    default_type = "gender"; break
-                elif re.search(r'\+?\d{1,3}?[-.\s]?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}', val):
-                    default_type = "text_normalize"; break
-                elif re.search(r'(usd|eur|inr|£|\$|€)', val.lower()):
-                    default_type = "text_normalize"; break
-                elif re.search(r'^[A-Z]{2,3}$', val.strip()):
-                    default_type = "text_normalize"; break
+                if re.match(r'^[\w\.-]+@[\w\.-]+\.[a-zA-Z]{2,}$', val): default_type = "email_validate"; break
+                elif re.match(r'https?://', val): default_type = "url_validate"; break
+                elif re.search(r'\d{1,4}[-/\s][A-Za-z]{3,}|\d{1,4}[-/\s]\d{1,2}', val): default_type = "date"; break
+                elif val.strip().lower() in ["m", "f", "male", "female"]: default_type = "gender"; break
+                elif re.search(r'\+?\d{1,3}?[-.\s]?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}', val): default_type = "text_normalize"; break
+                elif re.search(r'(usd|eur|inr|£|\$|€)', val.lower()): default_type = "text_normalize"; break
+                elif re.search(r'^[A-Z]{2,3}$', val.strip()): default_type = "text_normalize"; break
             else:
                 if df[col].dtype == object:
                     default_type = "text_normalize"
@@ -254,4 +244,3 @@ if uploaded_file:
 
         csv = df.to_csv(index=False).encode("utf-8")
         st.download_button("📥 Download Cleaned CSV", data=csv, file_name="cleansheet_cleaned.csv", mime="text/csv")
-
