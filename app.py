@@ -143,10 +143,10 @@ if uploaded_file:
                 key=f"type_{col}"
             )
 
-                        numeric_fill_options = ["none", "drop_rows", "fill_mean", "fill_median", "fill_mode"]
-            categorical_fill_options = ["none", "drop_rows", "fill_mode"]
-            is_numeric = pd.api.types.is_numeric_dtype(df[col])
-            fill_missing = st.selectbox(
+numeric_fill_options = ["none", "drop_rows", "fill_mean", "fill_median", "fill_mode"]
+categorical_fill_options = ["none", "drop_rows", "fill_mode"]
+is_numeric = pd.api.types.is_numeric_dtype(df[col])
+fill_missing = st.selectbox(
     f"Missing value handling for `{col}`:",
     numeric_fill_options if is_numeric else categorical_fill_options,
     key=f"null_{col}"
