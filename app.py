@@ -7,6 +7,22 @@ from io import StringIO
 st.set_page_config(page_title="CleanSheet - All-in-One CSV Cleaner", layout="wide")
 st.title("🧹 CleanSheet")
 st.caption("An all-in-one, no-code data cleaning assistant")
+st.sidebar.markdown("### 📦 Load Dataset")
+
+load_sample = st.sidebar.button("Load Sample Titanic Dataset")
+uploaded_file = st.sidebar.file_uploader("Upload your CSV file", type=["csv"])
+
+if load_sample:
+    titanic_url = "https://raw.githubusercontent.com/datasciencedojo/datasets/master/titanic.csv"
+    response = requests.get(titanic_url)
+    df = pd.read_csv(StringIO(response.text))
+    st.session_state.df_clean = df.copy()
+    st.success("✅ Sample Titanic dataset loaded successfully!")
+
+elif uploaded_file:
+    df = pd.read_csv(uploaded_file)
+    st.session_state.df_clean = df.copy()
+    st.success("✅ Your dataset was uploaded successfully!")
 
 # --- Helpers ---
 NULL_VALUES = ["", "na", "n/a", "null", "none", "-", "--", "NaN", "NAN", "?", "unknown"]
