@@ -129,9 +129,9 @@ clean_type = st.selectbox(
     index=index,
     key=f"type_{col}"
 )
-            fill_missing = st.selectbox(f"Missing value handling for `{col}`:", ["none", "drop_rows", "fill_mean", "fill_median", "fill_mode"], key=f"null_{col}")
-            handle_outliers = st.checkbox(f"Remove outliers from `{col}` using Z-score", value=False, key=f"outlier_{col}")
-            col_config[col] = (clean_type, fill_missing, handle_outliers)
+fill_missing = st.selectbox(f"Missing value handling for `{col}`:", ["none", "drop_rows", "fill_mean", "fill_median", "fill_mode"], key=f"null_{col}")
+handle_outliers = st.checkbox(f"Remove outliers from `{col}` using Z-score", value=False, key=f"outlier_{col}")
+col_config[col] = (clean_type, fill_missing, handle_outliers)
 
         submit = st.form_submit_button("🧼 Clean My Data")
 
