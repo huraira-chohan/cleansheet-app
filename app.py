@@ -151,14 +151,14 @@ fill_missing = st.selectbox(
     numeric_fill_options if is_numeric else categorical_fill_options,
     key=f"null_{col}"
 )
-                        handle_outliers = st.checkbox(
+handle_outliers = st.checkbox(
                 f"Remove outliers from `{col}` using Z-score", 
                 value=False, 
                 key=f"outlier_{col}"
             ) if is_numeric else False
             col_config[col] = (clean_type, fill_missing, handle_outliers)
 
-        submit = st.form_submit_button("🧼 Clean My Data")
+submit = st.form_submit_button("🧼 Clean My Data")
 
     if submit:
         for col, (action, fill, outliers) in col_config.items():
