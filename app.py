@@ -10,21 +10,20 @@ from sklearn.metrics.pairwise import cosine_similarity
 from scipy import stats
 import requests
 from io import StringIO
-import os
-from openai import OpenAI
+import openai
 
-api_key = st.text_input("🔑 Enter your OpenAI API Key", type="password")
-os.environ["OPENAI_API_KEY"] = api_key
-client = OpenAI()
-
-
+# UI setup
 st.set_page_config(page_title="CleanSheet v9 - Smartest Data Cleaner", layout="wide")
-
 st.title("🧹 CleanSheet v9")
 st.subheader("Your all-in-one AI-powered CSV data cleaning app with full control and outlier handling")
 
+# Get API Key
+api_key = st.sidebar.text_input("🔐 Enter your OpenAI API Key", type="password")
+client = openai.OpenAI(api_key=api_key) if api_key else None
+
 NULL_VALUES = ["", "na", "n/a", "null", "none", "-", "--", "NaN", "NAN", "?", "unknown"]
 
+# --- Cleaning functions ---
 def clean_text(x):
     return str(x).strip().title() if pd.notnull(x) else x
 
@@ -78,6 +77,9 @@ def remove_outliers_zscore(series, threshold=3):
     return series
 
 def ask_ai_about_data(df):
+    if client is None:
+        return "❌ Please enter a valid OpenAI API key in the sidebar."
+    
     schema = {
         col: {
             "type": str(df[col].dtype),
@@ -93,6 +95,7 @@ You are a data cleaning assistant. A user has uploaded the following dataset. He
 
 Suggest how to clean each column. Be practical. Say if it should be normalized, date-parsed, outlier-removed, email-validated, dropped, or filled. Be concise.
 """
+
     try:
         response = client.chat.completions.create(
             model="gpt-4",
@@ -101,10 +104,10 @@ Suggest how to clean each column. Be practical. Say if it should be normalized, 
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        return f"❌ Error: {str(e)}"
+        return f"❌ Error: {e}"
 
-# Load dataset
-st.sidebar.markdown("### 📦 Load Sample Dataset")
+# --- Dataset Upload ---
+st.sidebar.markdown("### 📦 Load Dataset")
 if st.sidebar.button("Load Titanic Dataset"):
     titanic_url = "https://raw.githubusercontent.com/datasciencedojo/datasets/master/titanic.csv"
     response = requests.get(titanic_url)
@@ -113,7 +116,6 @@ if st.sidebar.button("Load Titanic Dataset"):
 else:
     uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
 
-# Proceed if file uploaded
 if uploaded_file:
     df = pd.read_csv(uploaded_file)
     df.replace(NULL_VALUES, np.nan, inplace=True)
@@ -153,39 +155,28 @@ if uploaded_file:
                 elif re.search(r'(usd|eur|inr|£|\$|€)', val.lower()): default_type = "text_normalize"; break
                 elif re.search(r'^[A-Z]{2,3}$', val.strip()): default_type = "text_normalize"; break
             else:
-                if df[col].dtype == object:
-                    default_type = "text_normalize"
-                elif pd.api.types.is_numeric_dtype(df[col]):
-                    default_type = "numeric"
+                if df[col].dtype == object: default_type = "text_normalize"
+                elif pd.api.types.is_numeric_dtype(df[col]): default_type = "numeric"
 
             index = ["none", "text_normalize", "numeric", "date", "gender", "email_validate", "url_validate", "drop"].index(default_type)
 
             with st.expander(f"🧠 How should we clean the column `{col}`?"):
-                clean_type = st.radio(
-                    label="Select cleaning method:",
-                    options=["none", "text_normalize", "numeric", "date", "gender", "email_validate", "url_validate", "drop"],
-                    index=index,
-                    key=f"type_{col}"
-                )
+                clean_type = st.radio("Select cleaning method:",
+                                      options=["none", "text_normalize", "numeric", "date", "gender", "email_validate", "url_validate", "drop"],
+                                      index=index, key=f"type_{col}")
 
-            numeric_fill_options = ["none", "drop_rows", "fill_mean", "fill_median", "fill_mode"]
-            categorical_fill_options = ["none", "drop_rows", "fill_mode"]
+            numeric_fill = ["none", "drop_rows", "fill_mean", "fill_median", "fill_mode"]
+            categorical_fill = ["none", "drop_rows", "fill_mode"]
             is_numeric = pd.api.types.is_numeric_dtype(df[col])
 
-            with st.expander(f"❓ What should we do with missing values in `{col}`?"):
-                fill_missing = st.radio(
-                    label="Choose a missing value strategy:",
-                    options=numeric_fill_options if is_numeric else categorical_fill_options,
-                    key=f"null_{col}"
-                )
+            with st.expander(f"❓ Missing value strategy for `{col}`"):
+                fill_missing = st.radio("Choose a missing value strategy:",
+                                        options=numeric_fill if is_numeric else categorical_fill,
+                                        key=f"null_{col}")
 
             if is_numeric:
-                with st.expander(f"⚠️ Do you want to remove outliers from `{col}`?"):
-                    handle_outliers = st.checkbox(
-                        label="Remove outliers using Z-score?",
-                        value=False,
-                        key=f"outlier_{col}"
-                    )
+                with st.expander(f"⚠️ Remove outliers from `{col}`?"):
+                    handle_outliers = st.checkbox("Remove outliers using Z-score?", value=False, key=f"outlier_{col}")
             else:
                 handle_outliers = False
 
@@ -198,7 +189,6 @@ if uploaded_file:
             if action == "drop":
                 df.drop(columns=col, inplace=True)
                 continue
-
             if action == "text_normalize":
                 df[col] = df[col].apply(clean_text)
             elif action == "numeric":
@@ -226,23 +216,9 @@ if uploaded_file:
                 df[col] = remove_outliers_zscore(df[col])
 
         st.success("✅ Cleaning complete!")
-        st.write("### 📊 Cleaning Report")
-        report = []
-        for col, (action, fill, outliers) in col_config.items():
-            report.append(f"- `{col}`: Cleaned using **{action}**, Missing = **{fill}**, Outliers Removed = **{outliers}**")
-        st.markdown("\n".join(report))
-
         st.write("### ✅ Cleaned Data Preview")
         st.dataframe(df.head())
 
-        st.write("### 🔍 Column Before/After Comparison")
-        for col, (action, _, _) in col_config.items():
-            if action != "none" and col in df.columns:
-                before = pd.read_csv(uploaded_file)[col].astype(str).fillna("(null)").head(5)
-                after = df[col].astype(str).fillna("(null)").head(5)
-                comparison_df = pd.DataFrame({"Before": before, "After": after})
-                st.write(f"**🧪 `{col}`**")
-                st.dataframe(comparison_df)
-
         csv = df.to_csv(index=False).encode("utf-8")
         st.download_button("📥 Download Cleaned CSV", data=csv, file_name="cleansheet_cleaned.csv", mime="text/csv")
+
