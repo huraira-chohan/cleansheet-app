@@ -1,8 +1,9 @@
+streamlit
 pandas
 numpy
-streamlit
+scikit-learn
 rapidfuzz
 python-dateutil
-scikit-learn
-phonenumbers
-
+scipy
+requests
+openai
