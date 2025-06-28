@@ -10,11 +10,13 @@ from sklearn.metrics.pairwise import cosine_similarity
 from scipy import stats
 import requests
 from io import StringIO
+import os
 from openai import OpenAI
 
-# Get OpenAI API key from user
 api_key = st.text_input("🔑 Enter your OpenAI API Key", type="password")
-client = OpenAI(api_key=api_key)
+os.environ["OPENAI_API_KEY"] = api_key
+client = OpenAI()
+
 
 st.set_page_config(page_title="CleanSheet v9 - Smartest Data Cleaner", layout="wide")
 
