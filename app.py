@@ -2,13 +2,43 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import re
+from dateutil import parser
+from difflib import get_close_matches
+from fuzzywuzzy import fuzz, process
+import phonenumbers
+from urllib.parse import urlparse
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
-st.set_page_config(page_title="CleanSheet v3 - Smart CSV Cleaner", layout="wide")
+st.set_page_config(page_title="CleanSheet v6 - Smartest CSV Cleaner", layout="wide")
 
-st.title("🧹 CleanSheet v3")
-st.subheader("AI-Enhanced Real-World CSV Cleaner")
+st.title("🧹 CleanSheet v6")
+st.subheader("AI-Powered Real-World CSV Cleaner with Smart Detection + AI Inference")
 
-# Helper functions
+NULL_VALUES = ["", "na", "n/a", "null", "none", "-", "--", "NaN", "NAN", "?", "unknown"]
+
+KNOWN_COLUMN_TYPES = {
+    "email": ["email", "e-mail", "user_email"],
+    "phone": ["phone", "mobile", "contact", "phone_number"],
+    "url": ["website", "url", "link"],
+    "name": ["name", "full_name", "username"],
+    "date": ["dob", "birthdate", "joined", "date"],
+    "gender": ["gender", "sex"],
+    "age": ["age", "years_old"],
+    "salary": ["salary", "income", "pay"]
+}
+
+def ai_guess_column_type(col):
+    vectorizer = TfidfVectorizer().fit([" ".join(v) for v in KNOWN_COLUMN_TYPES.values()])
+    known_labels = list(KNOWN_COLUMN_TYPES.keys())
+    known_vectors = vectorizer.transform([" ".join(v) for v in KNOWN_COLUMN_TYPES.values()])
+    test_vector = vectorizer.transform([col.replace("_", " ")])
+    similarities = cosine_similarity(test_vector, known_vectors).flatten()
+    max_score = similarities.max()
+    if max_score > 0.4:
+        return known_labels[similarities.argmax()]
+    return None
+
 def clean_salary(s):
     try:
         return float(re.sub(r"[^\d.]", "", str(s)))
@@ -30,81 +60,118 @@ def normalize_gender(g):
         return "male"
     elif g in ["f", "female", "女"]:
         return "female"
-    else:
-        return "other"
+    return "other"
 
 def is_valid_email(email):
     pattern = r'^[\w\.-]+@[\w\.-]+\.[a-zA-Z]{2,}$'
     return bool(re.match(pattern, str(email)))
 
+def is_valid_phone(val):
+    try:
+        num = phonenumbers.parse(str(val), None)
+        return phonenumbers.is_valid_number(num)
+    except:
+        return False
+
+def is_valid_url(url):
+    try:
+        result = urlparse(url)
+        return all([result.scheme, result.netloc])
+    except:
+        return False
+
+def parse_any_date(date_str):
+    try:
+        return parser.parse(str(date_str), fuzzy=True)
+    except:
+        return np.nan
+
+def is_constant_column(series):
+    return series.nunique(dropna=False) <= 1
+
+def clean_text_column(col):
+    return col.fillna("").apply(lambda x: str(x).strip().title())
+
+def fuzzy_dedupe(df, col):
+    seen = set()
+    mask = []
+    for val in df[col].fillna("").astype(str):
+        norm_val = val.strip().lower()
+        if any(fuzz.ratio(norm_val, s) > 90 for s in seen):
+            mask.append(False)
+        else:
+            seen.add(norm_val)
+            mask.append(True)
+    return df[mask]
+
 uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
 
 if uploaded_file:
     df = pd.read_csv(uploaded_file)
-
-    # Standardize null-like values
-    df.replace(["", "na", "NA", "NaN", "None"], np.nan, inplace=True)
+    df.replace(NULL_VALUES, np.nan, inplace=True)
 
     st.write("### 📄 Original Data Preview")
     st.dataframe(df.head())
 
     with st.form("cleaning_options"):
         st.write("### ⚙️ Cleaning Options")
-
         drop_duplicates = st.checkbox("Remove duplicate rows", value=True)
         fill_missing = st.selectbox("Handle missing values:", ["Do nothing", "Fill with Median (numeric only)", "Drop Rows with Nulls"])
         standardize_columns = st.checkbox("Standardize column names (lowercase, no spaces)", value=True)
         detect_outliers = st.checkbox("Detect numeric outliers (z-score > 3)", value=True)
-
+        fuzzy_all = st.checkbox("Fuzzy deduplicate and normalize all text columns", value=True)
         submitted = st.form_submit_button("🧼 Clean Data")
 
     if submitted:
         report = []
 
-        if drop_duplicates:
-            before = len(df)
-            df.drop_duplicates(inplace=True)
-            after = len(df)
-            report.append(f"Removed {before - after} duplicate rows.")
-
         if standardize_columns:
             df.columns = [col.strip().lower().replace(' ', '_').replace('-', '_') for col in df.columns]
             report.append("Standardized column names.")
 
-        # Normalize gender column if it exists
         for col in df.columns:
-            if df[col].astype(str).str.lower().isin(["m", "f", "male", "female", "男", "女"]).any():
-                df[col] = df[col].apply(normalize_gender)
-                report.append(f"Normalized gender in column '{col}'.")
+            if df[col].dtype == object:
+                df[col] = clean_text_column(df[col])
 
-        # Convert written numbers in 'age'-like columns
+        if fuzzy_all:
+            for col in df.select_dtypes(include='object').columns:
+                before = len(df)
+                df = fuzzy_dedupe(df, col)
+                after = len(df)
+                if before != after:
+                    report.append(f"Fuzzy de-duplicated {before - after} rows based on '{col}'.")
+
+        if drop_duplicates:
+            before = len(df)
+            df.drop_duplicates(inplace=True)
+            after = len(df)
+            report.append(f"Removed {before - after} exact duplicate rows.")
+
         for col in df.columns:
-            if "age" in col:
+            guessed_type = ai_guess_column_type(col)
+            if guessed_type == "gender":
+                df[col] = df[col].apply(normalize_gender)
+                report.append(f"Normalized gender in column '{col}' (AI guessed).")
+            elif guessed_type == "age":
                 df[col] = df[col].apply(convert_text_to_number)
                 df[col] = pd.to_numeric(df[col], errors='coerce')
-                report.append(f"Converted age values to numeric in column '{col}'.")
-
-        # Clean salary columns
-        for col in df.columns:
-            if "salary" in col:
+                report.append(f"Converted age values to numeric in column '{col}' (AI guessed).")
+            elif guessed_type == "salary":
                 df[col] = df[col].apply(clean_salary)
-                report.append(f"Cleaned and converted salary values in column '{col}'.")
+                report.append(f"Cleaned salary values in column '{col}' (AI guessed).")
+            elif guessed_type == "date":
+                df[col] = df[col].apply(parse_any_date)
+                report.append(f"Parsed date values in column '{col}' (AI guessed).")
+            elif guessed_type == "email":
+                df[f"{col}_valid"] = df[col].apply(is_valid_email)
+                report.append(f"Flagged email validity in column '{col}' (AI guessed).")
+            elif guessed_type == "phone":
+                df[f"{col}_valid"] = df[col].apply(is_valid_phone)
+                report.append(f"Flagged phone number validity in column '{col}' (AI guessed).")
+            elif guessed_type == "url":
+                df[f"{col}_valid"] = df[col].apply(is_valid_url)
+                report.append(f"Flagged URL validity in column '{col}' (AI guessed).")
 
-        # Clean join date columns
-        for col in df.columns:
-            if "date" in col:
-                df[col] = pd.to_datetime(df[col], errors='coerce')
-                report.append(f"Parsed dates in column '{col}'.")
-
-        # Remove invalid emails
-        for col in df.columns:
-            if "email" in col:
-                invalids = df[~df[col].apply(is_valid_email)]
-                count = len(invalids)
-                df = df[df[col].apply(is_valid_email)]
-                report.append(f"Removed {count} invalid email addresses in column '{col}'.")
-
-        # Handle missing values
         if fill_missing == "Fill with Median (numeric only)":
             num_cols = df.select_dtypes(include=np.number).columns
             for col in num_cols:
@@ -118,13 +185,11 @@ if uploaded_file:
             after = len(df)
             report.append(f"Dropped {before - after} rows with null values.")
 
-        # Drop constant columns
-        constant_cols = [col for col in df.columns if df[col].nunique() <= 1]
+        constant_cols = [col for col in df.columns if is_constant_column(df[col])]
         if constant_cols:
             df.drop(columns=constant_cols, inplace=True)
             report.append(f"Dropped constant columns: {constant_cols}")
 
-        # Outlier detection
         if detect_outliers:
             for col in df.select_dtypes(include=np.number).columns:
                 z = (df[col] - df[col].mean()) / df[col].std()
@@ -133,15 +198,14 @@ if uploaded_file:
                     report.append(f"'{col}' has {outliers} potential outliers (z > 3).")
 
         st.success("✅ Cleaning complete!")
-
         st.write("### 🧼 Cleaned Data Preview")
         st.dataframe(df.head())
-
         st.write("### 📝 Cleaning Report")
         for line in report:
             st.write("- ", line)
 
         csv = df.to_csv(index=False).encode("utf-8")
         st.download_button("📥 Download Cleaned CSV", data=csv, file_name="cleansheet_cleaned.csv", mime="text/csv")
+
 
 
