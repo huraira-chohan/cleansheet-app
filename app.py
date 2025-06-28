@@ -126,8 +126,17 @@ if uploaded_file:
         st.markdown("### 💡 Assistant Recommendations")
         st.info(ai_response)
 
-    st.write("### 📄 Data Preview")
-    st.dataframe(df.head())
+   st.write("### ✅ Cleaned Data Preview")
+
+view_option = st.radio("🔍 How much data do you want to see?", ["Top 5 rows", "Top 50 rows", "All"], horizontal=True)
+
+if view_option == "Top 5 rows":
+    st.dataframe(df.head(), use_container_width=True, height=400)
+elif view_option == "Top 50 rows":
+    st.dataframe(df.head(50), use_container_width=True, height=600)
+else:
+    st.dataframe(df.reset_index(drop=True), use_container_width=True, height=800)
+
 
     st.write("### 🧪 Column Profiling")
     profile = pd.DataFrame({col: profile_column(df[col]) for col in df.columns}).T
