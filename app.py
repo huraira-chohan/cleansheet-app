@@ -89,6 +89,15 @@ def remove_outliers_zscore(series, threshold=3):
     return series
 
 # --- APP INTERFACE ---
+import requests
+from io import StringIO
+
+st.sidebar.markdown("### 📦 Load Sample Dataset")
+if st.sidebar.button("Load Titanic Dataset"):
+    titanic_url = "https://raw.githubusercontent.com/datasciencedojo/datasets/master/titanic.csv"
+    response = requests.get(titanic_url)
+    uploaded_file = StringIO(response.text)
+    uploaded_file.name = "titanic.csv"
 uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
 
 if uploaded_file:
@@ -113,27 +122,28 @@ if uploaded_file:
             guessed = ai_guess_column_type(col)
             st.markdown(f"#### Column: `{col}` (AI guess: `{guessed}`)")
             type_map = {
-    "name": "text_normalize",
-    "age": "numeric",
-    "salary": "numeric",
-    "date": "date",
-    "gender": "gender",
-    "email": "email_validate",
-    "url": "url_validate"
-}
-default_type = type_map.get(guessed, "none")
-index = ["none", "text_normalize", "numeric", "date", "gender", "email_validate", "url_validate", "drop"].index(default_type)
-clean_type = st.selectbox(
-    f"Cleaning rule for `{col}`:",
-    ["none", "text_normalize", "numeric", "date", "gender", "email_validate", "url_validate", "drop"],
-    index=index,
-    key=f"type_{col}"
-)
-fill_missing = st.selectbox(f"Missing value handling for `{col}`:", ["none", "drop_rows", "fill_mean", "fill_median", "fill_mode"], key=f"null_{col}")
-handle_outliers = st.checkbox(f"Remove outliers from `{col}` using Z-score", value=False, key=f"outlier_{col}")
-col_config[col] = (clean_type, fill_missing, handle_outliers)
+                "name": "text_normalize",
+                "age": "numeric",
+                "salary": "numeric",
+                "date": "date",
+                "gender": "gender",
+                "email": "email_validate",
+                "url": "url_validate"
+            }
+            default_type = type_map.get(guessed, "none")
+            index = ["none", "text_normalize", "numeric", "date", "gender", "email_validate", "url_validate", "drop"].index(default_type)
+            clean_type = st.selectbox(
+                f"Cleaning rule for `{col}`:",
+                ["none", "text_normalize", "numeric", "date", "gender", "email_validate", "url_validate", "drop"],
+                index=index,
+                key=f"type_{col}"
+            )
 
-submit = st.form_submit_button("🧼 Clean My Data")
+            fill_missing = st.selectbox(f"Missing value handling for `{col}`:", ["none", "drop_rows", "fill_mean", "fill_median", "fill_mode"], key=f"null_{col}")
+            handle_outliers = st.checkbox(f"Remove outliers from `{col}` using Z-score", value=False, key=f"outlier_{col}")
+            col_config[col] = (clean_type, fill_missing, handle_outliers)
+
+        submit = st.form_submit_button("🧼 Clean My Data")
 
     if submit:
         for col, (action, fill, outliers) in col_config.items():
@@ -173,6 +183,5 @@ submit = st.form_submit_button("🧼 Clean My Data")
 
         csv = df.to_csv(index=False).encode("utf-8")
         st.download_button("📥 Download Cleaned CSV", data=csv, file_name="cleansheet_cleaned.csv", mime="text/csv")
-
 
 
