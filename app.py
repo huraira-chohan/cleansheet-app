@@ -10,20 +10,20 @@ from sklearn.metrics.pairwise import cosine_similarity
 from scipy import stats
 import requests
 from io import StringIO
-import openai
+from openai import OpenAI
 
-# UI setup
-st.set_page_config(page_title="CleanSheet v9 - Smartest Data Cleaner", layout="wide")
+# Setup
+st.set_page_config(page_title="CleanSheet v9", layout="wide")
 st.title("🧹 CleanSheet v9")
-st.subheader("Your all-in-one AI-powered CSV data cleaning app with full control and outlier handling")
+st.subheader("AI-powered CSV cleaning with assistant suggestions and smart controls")
 
-# Get API Key
+# API key input
 api_key = st.sidebar.text_input("🔐 Enter your OpenAI API Key", type="password")
-client = openai.OpenAI(api_key=api_key) if api_key else None
+client = OpenAI(api_key=api_key) if api_key else None
 
 NULL_VALUES = ["", "na", "n/a", "null", "none", "-", "--", "NaN", "NAN", "?", "unknown"]
 
-# --- Cleaning functions ---
+# --- Cleaning helpers ---
 def clean_text(x):
     return str(x).strip().title() if pd.notnull(x) else x
 
@@ -48,8 +48,7 @@ def parse_any_date(date_str):
         return np.nan
 
 def is_valid_email(email):
-    pattern = r'^[\w\.-]+@[\w\.-]+\.[a-zA-Z]{2,}$'
-    return bool(re.match(pattern, str(email)))
+    return bool(re.match(r'^[\w\.-]+@[\w\.-]+\.[a-zA-Z]{2,}$', str(email)))
 
 def is_valid_url(url):
     try:
@@ -76,10 +75,11 @@ def remove_outliers_zscore(series, threshold=3):
         return series.where(series.isin(filtered))
     return series
 
+# --- Assistant ---
 def ask_ai_about_data(df):
-    if client is None:
-        return "❌ Please enter a valid OpenAI API key in the sidebar."
-    
+    if not client:
+        return "❌ Please enter a valid OpenAI API key."
+
     schema = {
         col: {
             "type": str(df[col].dtype),
@@ -89,11 +89,8 @@ def ask_ai_about_data(df):
     }
 
     prompt = f"""
-You are a data cleaning assistant. A user has uploaded the following dataset. Here are the columns with their types, missing %, and sample values:
-
-{schema}
-
-Suggest how to clean each column. Be practical. Say if it should be normalized, date-parsed, outlier-removed, email-validated, dropped, or filled. Be concise.
+You are a data cleaning assistant. Here's the dataset schema:\n{schema}
+Suggest cleaning steps for each column: normalize, drop, outlier removal, parse date, etc. Be practical and concise.
 """
 
     try:
@@ -106,12 +103,11 @@ Suggest how to clean each column. Be practical. Say if it should be normalized, 
     except Exception as e:
         return f"❌ Error: {e}"
 
-# --- Dataset Upload ---
+# --- Dataset Load ---
 st.sidebar.markdown("### 📦 Load Dataset")
 if st.sidebar.button("Load Titanic Dataset"):
-    titanic_url = "https://raw.githubusercontent.com/datasciencedojo/datasets/master/titanic.csv"
-    response = requests.get(titanic_url)
-    uploaded_file = StringIO(response.text)
+    url = "https://raw.githubusercontent.com/datasciencedojo/datasets/master/titanic.csv"
+    uploaded_file = StringIO(requests.get(url).text)
     uploaded_file.name = "titanic.csv"
 else:
     uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
@@ -126,22 +122,21 @@ if uploaded_file:
         st.markdown("### 💡 Assistant Recommendations")
         st.info(ai_response)
 
-st.write("### ✅ Cleaned Data Preview")
+    # View control
+    view_option = st.radio("🔍 How much data do you want to see?", ["Top 5 rows", "Top 50 rows", "All"], horizontal=True)
+    if view_option == "Top 5 rows":
+        st.dataframe(df.head(), use_container_width=True, height=400)
+    elif view_option == "Top 50 rows":
+        st.dataframe(df.head(50), use_container_width=True, height=600)
+    else:
+        st.dataframe(df.reset_index(drop=True), use_container_width=True, height=800)
 
-view_option = st.radio("🔍 How much data do you want to see?", ["Top 5 rows", "Top 50 rows", "All"], horizontal=True)
-
-if view_option == "Top 5 rows":
-    st.dataframe(df.head(), use_container_width=True, height=400)
-elif view_option == "Top 50 rows":
-    st.dataframe(df.head(50), use_container_width=True, height=600)
-else:
-    st.dataframe(df.reset_index(drop=True), use_container_width=True, height=800)
-
-
+    # --- Profiling ---
     st.write("### 🧪 Column Profiling")
     profile = pd.DataFrame({col: profile_column(df[col]) for col in df.columns}).T
     st.dataframe(profile)
 
+    # --- Cleaning UI ---
     st.write("### ⚙️ Column Cleaning Options")
     col_config = {}
 
@@ -150,7 +145,7 @@ else:
 
         for col in df.columns:
             if profile.loc[col, "% missing"] > drop_threshold:
-                st.warning(f"'{col}' exceeds missing threshold ({profile.loc[col, '% missing']}%). Will be dropped.")
+                st.warning(f"'{col}' has {profile.loc[col, '% missing']}% missing and will be dropped.")
                 continue
 
             sample_vals = df[col].dropna().astype(str).head(10).tolist()
@@ -159,7 +154,7 @@ else:
                 if re.match(r'^[\w\.-]+@[\w\.-]+\.[a-zA-Z]{2,}$', val): default_type = "email_validate"; break
                 elif re.match(r'https?://', val): default_type = "url_validate"; break
                 elif re.search(r'\d{1,4}[-/\s][A-Za-z]{3,}|\d{1,4}[-/\s]\d{1,2}', val): default_type = "date"; break
-                elif val.strip().lower() in ["m", "f", "male", "female"]: default_type = "gender"; break
+                elif val.lower() in ["m", "f", "male", "female"]: default_type = "gender"; break
                 elif re.search(r'\+?\d{1,3}?[-.\s]?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}', val): default_type = "text_normalize"; break
                 elif re.search(r'(usd|eur|inr|£|\$|€)', val.lower()): default_type = "text_normalize"; break
                 elif re.search(r'^[A-Z]{2,3}$', val.strip()): default_type = "text_normalize"; break
@@ -169,65 +164,61 @@ else:
 
             index = ["none", "text_normalize", "numeric", "date", "gender", "email_validate", "url_validate", "drop"].index(default_type)
 
-            with st.expander(f"🧠 How should we clean the column `{col}`?"):
-                clean_type = st.radio("Select cleaning method:",
+            with st.expander(f"🧠 How should we clean `{col}`?"):
+                clean_type = st.radio("Cleaning method:", 
                                       options=["none", "text_normalize", "numeric", "date", "gender", "email_validate", "url_validate", "drop"],
                                       index=index, key=f"type_{col}")
 
-            numeric_fill = ["none", "drop_rows", "fill_mean", "fill_median", "fill_mode"]
-            categorical_fill = ["none", "drop_rows", "fill_mode"]
-            is_numeric = pd.api.types.is_numeric_dtype(df[col])
+            fill_opts = ["none", "drop_rows", "fill_mode"]
+            if pd.api.types.is_numeric_dtype(df[col]):
+                fill_opts += ["fill_mean", "fill_median"]
 
             with st.expander(f"❓ Missing value strategy for `{col}`"):
-                fill_missing = st.radio("Choose a missing value strategy:",
-                                        options=numeric_fill if is_numeric else categorical_fill,
-                                        key=f"null_{col}")
+                fill_missing = st.radio("Strategy:", options=fill_opts, key=f"null_{col}")
 
-            if is_numeric:
-                with st.expander(f"⚠️ Remove outliers from `{col}`?"):
-                    handle_outliers = st.checkbox("Remove outliers using Z-score?", value=False, key=f"outlier_{col}")
-            else:
-                handle_outliers = False
+            outliers = False
+            if pd.api.types.is_numeric_dtype(df[col]):
+                with st.expander(f"⚠️ Outliers in `{col}`?"):
+                    outliers = st.checkbox("Remove using Z-score", value=False, key=f"outlier_{col}")
 
-            col_config[col] = (clean_type, fill_missing, handle_outliers)
+            col_config[col] = (clean_type, fill_missing, outliers)
 
-        submit = st.form_submit_button("🧼 Clean My Data")
+        if st.form_submit_button("🧼 Clean My Data"):
+            for col, (action, fill, outliers) in col_config.items():
+                if action == "drop":
+                    df.drop(columns=col, inplace=True)
+                    continue
 
-    if submit:
-        for col, (action, fill, outliers) in col_config.items():
-            if action == "drop":
-                df.drop(columns=col, inplace=True)
-                continue
-            if action == "text_normalize":
-                df[col] = df[col].apply(clean_text)
-            elif action == "numeric":
-                df[col] = df[col].apply(convert_to_numeric)
-            elif action == "date":
-                df[col] = df[col].apply(parse_any_date)
-            elif action == "gender":
-                df[col] = df[col].apply(normalize_gender)
-            elif action == "email_validate":
-                df[f"{col}_valid"] = df[col].apply(is_valid_email)
-            elif action == "url_validate":
-                df[f"{col}_valid"] = df[col].apply(is_valid_url)
+                if action == "text_normalize":
+                    df[col] = df[col].apply(clean_text)
+                elif action == "numeric":
+                    df[col] = df[col].apply(convert_to_numeric)
+                elif action == "date":
+                    df[col] = df[col].apply(parse_any_date)
+                elif action == "gender":
+                    df[col] = df[col].apply(normalize_gender)
+                elif action == "email_validate":
+                    df[f"{col}_valid"] = df[col].apply(is_valid_email)
+                elif action == "url_validate":
+                    df[f"{col}_valid"] = df[col].apply(is_valid_url)
 
-            if fill == "drop_rows":
-                df = df[df[col].notna()]
-            elif fill == "fill_mean" and pd.api.types.is_numeric_dtype(df[col]):
-                df[col].fillna(df[col].mean(), inplace=True)
-            elif fill == "fill_median" and pd.api.types.is_numeric_dtype(df[col]):
-                df[col].fillna(df[col].median(), inplace=True)
-            elif fill == "fill_mode":
-                mode = df[col].mode().iloc[0] if not df[col].mode().empty else None
-                df[col].fillna(mode, inplace=True)
+                if fill == "drop_rows":
+                    df = df[df[col].notna()]
+                elif fill == "fill_mean":
+                    df[col].fillna(df[col].mean(), inplace=True)
+                elif fill == "fill_median":
+                    df[col].fillna(df[col].median(), inplace=True)
+                elif fill == "fill_mode":
+                    mode = df[col].mode().iloc[0] if not df[col].mode().empty else None
+                    df[col].fillna(mode, inplace=True)
 
-            if outliers:
-                df[col] = remove_outliers_zscore(df[col])
+                if outliers:
+                    df[col] = remove_outliers_zscore(df[col])
 
-        st.success("✅ Cleaning complete!")
-        st.write("### ✅ Cleaned Data Preview")
-        st.dataframe(df.head())
+            st.success("✅ Data cleaned successfully!")
+            st.write("### 🧼 Final Cleaned Preview")
+            st.dataframe(df.head())
 
-        csv = df.to_csv(index=False).encode("utf-8")
-        st.download_button("📥 Download Cleaned CSV", data=csv, file_name="cleansheet_cleaned.csv", mime="text/csv")
+            st.download_button("📥 Download CSV", data=df.to_csv(index=False).encode("utf-8"), file_name="cleaned_data.csv", mime="text/csv")
+
 
