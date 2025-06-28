@@ -1,5 +1,8 @@
 pandas
 numpy
 streamlit
-fuzzywuzzy
-python-Levenshtein
+rapidfuzz
+python-dateutil
+scikit-learn
+phonenumbers
+
