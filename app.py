@@ -7,8 +7,8 @@ from urllib.parse import urlparse
 from scipy import stats
 
 # Page settings
-st.set_page_config("🧹 CleanSheet - CSV Cleaner", layout="wide")
-st.title("🧹 CleanSheet - CSV Cleaner")
+st.set_page_config("CSV Cleaner", layout="wide")
+st.title("CSV Cleaner")
 st.caption("Upload your csv dataset to clean it.")
 
 NULL_VALUES = ["", "na", "n/a", "null", "none", "-", "--", "NaN", "NAN", "?", "unknown"]
