@@ -122,9 +122,9 @@ if submit:
         # Cleaning logic remains the same...
         
 
-    st.success("✅ Data cleaned successfully!")
-    st.write("### 🧼 Final Cleaned Preview")
-    st.dataframe(df.head())
+st.success("✅ Data cleaned successfully!")
+st.write("### 🧼 Final Cleaned Preview")
+st.dataframe(df.head())
 
     # ✅ MOVE THIS BUTTON OUTSIDE the form
     csv_data = df.to_csv(index=False).encode("utf-8")
