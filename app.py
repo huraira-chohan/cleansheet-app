@@ -8,6 +8,8 @@ from urllib.parse import urlparse
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from scipy import stats
+import requests
+from io import StringIO
 
 st.set_page_config(page_title="CleanSheet v9 - Smartest Data Cleaner", layout="wide")
 
@@ -27,7 +29,6 @@ KNOWN_COLUMN_TYPES = {
     "salary": ["salary", "income", "pay"]
 }
 
-# --- UTILITY FUNCTIONS ---
 def ai_guess_column_type(col):
     vectorizer = TfidfVectorizer().fit([" ".join(v) for v in KNOWN_COLUMN_TYPES.values()])
     known_labels = list(KNOWN_COLUMN_TYPES.keys())
@@ -89,24 +90,22 @@ def remove_outliers_zscore(series, threshold=3):
         mask = (z < threshold)
         filtered = non_na[mask]
         return series.where(series.isin(filtered))
-            # Removed incorrect reindex call for array
-        return series
-
-# --- APP INTERFACE ---
-import requests
-from io import StringIO
+    return series
 
 st.sidebar.markdown("### 📦 Load Sample Dataset")
+
 if st.sidebar.button("Load Titanic Dataset"):
     titanic_url = "https://raw.githubusercontent.com/datasciencedojo/datasets/master/titanic.csv"
     response = requests.get(titanic_url)
     uploaded_file = StringIO(response.text)
     uploaded_file.name = "titanic.csv"
-uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
+else:
+    uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
 
 if uploaded_file:
     df = pd.read_csv(uploaded_file)
     df.replace(NULL_VALUES, np.nan, inplace=True)
+
     st.write("### 📄 Data Preview")
     st.dataframe(df.head())
 
@@ -116,8 +115,10 @@ if uploaded_file:
 
     st.write("### ⚙️ Column Cleaning Options")
     col_config = {}
+
     with st.form("column_config"):
         drop_threshold = st.slider("Drop columns with more than X% missing values", 0, 100, 95)
+
         for col in df.columns:
             if profile.loc[col, "% missing"] > drop_threshold:
                 st.warning(f"'{col}' exceeds missing threshold ({profile.loc[col, '% missing']}%). Will be dropped.")
@@ -125,6 +126,7 @@ if uploaded_file:
 
             guessed = ai_guess_column_type(col)
             st.markdown(f"#### Column: `{col}` (AI guess: `{guessed}`)")
+
             type_map = {
                 "name": "text_normalize",
                 "age": "numeric",
@@ -134,8 +136,10 @@ if uploaded_file:
                 "email": "email_validate",
                 "url": "url_validate"
             }
+
             default_type = type_map.get(guessed, "none")
             index = ["none", "text_normalize", "numeric", "date", "gender", "email_validate", "url_validate", "drop"].index(default_type)
+
             clean_type = st.selectbox(
                 f"Cleaning rule for `{col}`:",
                 ["none", "text_normalize", "numeric", "date", "gender", "email_validate", "url_validate", "drop"],
@@ -143,22 +147,25 @@ if uploaded_file:
                 key=f"type_{col}"
             )
 
-numeric_fill_options = ["none", "drop_rows", "fill_mean", "fill_median", "fill_mode"]
-categorical_fill_options = ["none", "drop_rows", "fill_mode"]
-is_numeric = pd.api.types.is_numeric_dtype(df[col])
-fill_missing = st.selectbox(
-    f"Missing value handling for `{col}`:",
-    numeric_fill_options if is_numeric else categorical_fill_options,
-    key=f"null_{col}"
-)
-handle_outliers = st.checkbox(
-                f"Remove outliers from `{col}` using Z-score", 
-                value=False, 
+            numeric_fill_options = ["none", "drop_rows", "fill_mean", "fill_median", "fill_mode"]
+            categorical_fill_options = ["none", "drop_rows", "fill_mode"]
+            is_numeric = pd.api.types.is_numeric_dtype(df[col])
+
+            fill_missing = st.selectbox(
+                f"Missing value handling for `{col}`:",
+                numeric_fill_options if is_numeric else categorical_fill_options,
+                key=f"null_{col}"
+            )
+
+            handle_outliers = st.checkbox(
+                f"Remove outliers from `{col}` using Z-score",
+                value=False,
                 key=f"outlier_{col}"
             ) if is_numeric else False
-col_config[col] = (clean_type, fill_missing, handle_outliers)
 
-submit = st.form_submit_button("🧼 Clean My Data")
+            col_config[col] = (clean_type, fill_missing, handle_outliers)
+
+        submit = st.form_submit_button("🧼 Clean My Data")
 
     if submit:
         for col, (action, fill, outliers) in col_config.items():
