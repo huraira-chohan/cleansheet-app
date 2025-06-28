@@ -10,7 +10,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from scipy import stats
 import requests
 from io import StringIO
-import openai
+from openai import OpenAI
 
 openai.api_key = st.text_input("🔑 Enter your OpenAI API Key", type="password")
 
@@ -26,9 +26,9 @@ def clean_text(x):
 
 def normalize_gender(g):
     g = str(g).strip().lower()
-    if g in ["m", "male"]:
+    if g in ["m", "male","M"]:
         return "Male"
-    elif g in ["f", "female"]:
+    elif g in ["f", "female","F"]:
         return "Female"
     return "Other"
 
