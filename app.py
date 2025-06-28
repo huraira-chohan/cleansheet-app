@@ -12,7 +12,7 @@ import requests
 from io import StringIO
 import openai
 
-openai.api_key = st.secrets["openai_api_key"]
+openai.api_key = st.text_input("🔑 Enter your OpenAI API Key", type="password")
 
 st.set_page_config(page_title="CleanSheet v9 - Smartest Data Cleaner", layout="wide")
 
