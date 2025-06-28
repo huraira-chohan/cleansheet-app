@@ -43,10 +43,22 @@ st.sidebar.header("📦 Load CSV")
 use_sample = st.sidebar.button("Use Titanic Sample")
 uploaded = st.sidebar.file_uploader("Upload your CSV", type=["csv"])
 
+# Load data once into session_state
+if "df" not in st.session_state:
+    st.session_state.df = None
+
 if use_sample:
     url = "https://raw.githubusercontent.com/datasciencedojo/datasets/master/titanic.csv"
-    uploaded = StringIO(requests.get(url).text)
-    uploaded.name = "titanic.csv"
+    sample_data = StringIO(requests.get(url).text)
+    st.session_state.df = pd.read_csv(sample_data)
+    st.session_state.df.replace(NULL_VALUES, np.nan, inplace=True)
+
+if uploaded:
+    st.session_state.df = pd.read_csv(uploaded)
+    st.session_state.df.replace(NULL_VALUES, np.nan, inplace=True)
+
+df = st.session_state.df
+
 
 if uploaded:
     df = pd.read_csv(uploaded)
