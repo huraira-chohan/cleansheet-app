@@ -4,7 +4,7 @@ import numpy as np
 import re
 from dateutil import parser
 from difflib import get_close_matches
-from fuzzywuzzy import fuzz, process
+from rapidfuzz import fuzz, process
 import phonenumbers
 from urllib.parse import urlparse
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -27,6 +27,8 @@ KNOWN_COLUMN_TYPES = {
     "age": ["age", "years_old"],
     "salary": ["salary", "income", "pay"]
 }
+
+... [rest of the code remains unchanged] ...
 
 def ai_guess_column_type(col):
     vectorizer = TfidfVectorizer().fit([" ".join(v) for v in KNOWN_COLUMN_TYPES.values()])
