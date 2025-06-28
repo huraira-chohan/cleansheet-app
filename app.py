@@ -28,7 +28,6 @@ KNOWN_COLUMN_TYPES = {
     "salary": ["salary", "income", "pay"]
 }
 
-... [rest of the code remains unchanged] ...
 
 def ai_guess_column_type(col):
     vectorizer = TfidfVectorizer().fit([" ".join(v) for v in KNOWN_COLUMN_TYPES.values()])
