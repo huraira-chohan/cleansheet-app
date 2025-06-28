@@ -18,28 +18,6 @@ st.subheader("Your all-in-one AI-powered CSV data cleaning app with full control
 
 NULL_VALUES = ["", "na", "n/a", "null", "none", "-", "--", "NaN", "NAN", "?", "unknown"]
 
-KNOWN_COLUMN_TYPES = {
-    "email": ["email", "e-mail", "user_email"],
-    "phone": ["phone", "mobile", "contact", "phone_number"],
-    "url": ["website", "url", "link"],
-    "name": ["name", "full_name", "username"],
-    "date": ["dob", "birthdate", "joined", "date"],
-    "gender": ["gender", "sex"],
-    "age": ["age", "years_old"],
-    "salary": ["salary", "income", "pay"]
-}
-
-def ai_guess_column_type(col):
-    vectorizer = TfidfVectorizer().fit([" ".join(v) for v in KNOWN_COLUMN_TYPES.values()])
-    known_labels = list(KNOWN_COLUMN_TYPES.keys())
-    known_vectors = vectorizer.transform([" ".join(v) for v in KNOWN_COLUMN_TYPES.values()])
-    test_vector = vectorizer.transform([col.replace("_", " ")])
-    similarities = cosine_similarity(test_vector, known_vectors).flatten()
-    max_score = similarities.max()
-    if max_score > 0.4:
-        return known_labels[similarities.argmax()]
-    return "unknown"
-
 def clean_text(x):
     return str(x).strip().title() if pd.notnull(x) else x
 
@@ -124,20 +102,36 @@ if uploaded_file:
                 st.warning(f"'{col}' exceeds missing threshold ({profile.loc[col, '% missing']}%). Will be dropped.")
                 continue
 
-            guessed = ai_guess_column_type(col)
-            st.markdown(f"#### Column: `{col}` (AI guess: `{guessed}`)")
+            sample_vals = df[col].dropna().astype(str).head(10).tolist()
+            default_type = "none"
+            for val in sample_vals:
+                if re.match(r'^[\w\.-]+@[\w\.-]+\.[a-zA-Z]{2,}$', val):
+                    default_type = "email_validate"
+                    break
+                elif re.match(r'https?://', val):
+                    default_type = "url_validate"
+                    break
+                elif re.search(r'\d{1,4}[-/\s][A-Za-z]{3,}|\d{1,4}[-/\s]\d{1,2}', val):
+                    default_type = "date"
+                    break
+                elif val.strip().lower() in ["m", "f", "male", "female"]:
+                    default_type = "gender"
+                    break
+                elif re.search(r'\+?\d{1,3}?[-.\s]?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}', val):
+                    default_type = "text_normalize"
+                    break
+                elif re.search(r'(usd|eur|inr|£|\$|€)', val.lower()):
+                    default_type = "text_normalize"
+                    break
+                elif re.search(r'^[A-Z]{2,3}$', val.strip()):
+                    default_type = "text_normalize"
+                    break
+            else:
+                if df[col].dtype == object:
+                    default_type = "text_normalize"
+                elif pd.api.types.is_numeric_dtype(df[col]):
+                    default_type = "numeric"
 
-            type_map = {
-                "name": "text_normalize",
-                "age": "numeric",
-                "salary": "numeric",
-                "date": "date",
-                "gender": "gender",
-                "email": "email_validate",
-                "url": "url_validate"
-            }
-
-            default_type = type_map.get(guessed, "none")
             index = ["none", "text_normalize", "numeric", "date", "gender", "email_validate", "url_validate", "drop"].index(default_type)
 
             with st.expander(f"🧠 How should we clean the column `{col}`?"):
@@ -194,9 +188,9 @@ if uploaded_file:
 
             if fill == "drop_rows":
                 df = df[df[col].notna()]
-            elif fill == "fill_mean" and df[col].dtype in ["float64", "int64"]:
+            elif fill == "fill_mean" and pd.api.types.is_numeric_dtype(df[col]):
                 df[col].fillna(df[col].mean(), inplace=True)
-            elif fill == "fill_median" and df[col].dtype in ["float64", "int64"]:
+            elif fill == "fill_median" and pd.api.types.is_numeric_dtype(df[col]):
                 df[col].fillna(df[col].median(), inplace=True)
             elif fill == "fill_mode":
                 mode = df[col].mode().iloc[0] if not df[col].mode().empty else None
@@ -206,12 +200,23 @@ if uploaded_file:
                 df[col] = remove_outliers_zscore(df[col])
 
         st.success("✅ Cleaning complete!")
+        st.write("### 📊 Cleaning Report")
+        report = []
+        for col, (action, fill, outliers) in col_config.items():
+            report.append(f"- `{col}`: Cleaned using **{action}**, Missing = **{fill}**, Outliers Removed = **{outliers}**")
+        st.markdown("\n".join(report))
+
         st.write("### ✅ Cleaned Data Preview")
         st.dataframe(df.head())
 
+        st.write("### 🔍 Column Before/After Comparison")
+        for col, (action, _, _) in col_config.items():
+            if action != "none" and col in df.columns:
+                before = pd.read_csv(uploaded_file)[col].astype(str).fillna("(null)").head(5)
+                after = df[col].astype(str).fillna("(null)").head(5)
+                comparison_df = pd.DataFrame({"Before": before, "After": after})
+                st.write(f"**🧪 `{col}`**")
+                st.dataframe(comparison_df)
+
         csv = df.to_csv(index=False).encode("utf-8")
         st.download_button("📥 Download Cleaned CSV", data=csv, file_name="cleansheet_cleaned.csv", mime="text/csv")
-
-
-
-
