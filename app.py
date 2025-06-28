@@ -9,7 +9,7 @@ from scipy import stats
 # Page settings
 st.set_page_config("🧹 CleanSheet - CSV Cleaner", layout="wide")
 st.title("🧹 CleanSheet - CSV Cleaner")
-st.caption("A simple, powerful CSV cleaner with full control. No AI or API required.")
+st.caption("Upload your csv dataset to clean it.")
 
 NULL_VALUES = ["", "na", "n/a", "null", "none", "-", "--", "NaN", "NAN", "?", "unknown"]
 
