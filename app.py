@@ -53,10 +53,6 @@ if use_sample:
     st.session_state.df = pd.read_csv(sample_data)
     st.session_state.df.replace(NULL_VALUES, np.nan, inplace=True)
 
-if uploaded:
-    st.session_state.df = pd.read_csv(uploaded)
-    st.session_state.df.replace(NULL_VALUES, np.nan, inplace=True)
-
 df = st.session_state.df
 
 
