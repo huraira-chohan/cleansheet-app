@@ -10,6 +10,9 @@ from sklearn.metrics.pairwise import cosine_similarity
 from scipy import stats
 import requests
 from io import StringIO
+import openai
+
+openai.api_key = st.secrets["openai_api_key"]
 
 st.set_page_config(page_title="CleanSheet v9 - Smartest Data Cleaner", layout="wide")
 
@@ -70,6 +73,33 @@ def remove_outliers_zscore(series, threshold=3):
         return series.where(series.isin(filtered))
     return series
 
+def ask_ai_about_data(df):
+    schema = {
+        col: {
+            "type": str(df[col].dtype),
+            "missing": f"{df[col].isnull().mean()*100:.2f}%",
+            "example": str(df[col].dropna().astype(str).head(1).values[0]) if not df[col].dropna().empty else "N/A"
+        } for col in df.columns
+    }
+
+    prompt = f"""
+You are a data cleaning assistant. A user has uploaded the following dataset. Here are the columns with their types, missing %, and sample values:
+
+{schema}
+
+Suggest how to clean each column. Be practical. Say if it should be normalized, date-parsed, outlier-removed, email-validated, dropped, or filled. Be concise.
+"""
+
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        return f"❌ Error: {str(e)}"
+
 st.sidebar.markdown("### 📦 Load Sample Dataset")
 
 if st.sidebar.button("Load Titanic Dataset"):
@@ -83,6 +113,12 @@ else:
 if uploaded_file:
     df = pd.read_csv(uploaded_file)
     df.replace(NULL_VALUES, np.nan, inplace=True)
+    
+if st.checkbox("🤖 Show AI Assistant Suggestions", value=True):
+        with st.spinner("Thinking..."):
+            ai_response = ask_ai_about_data(df)
+        st.markdown("### 💡 Assistant Recommendations")
+        st.info(ai_response)
 
     st.write("### 📄 Data Preview")
     st.dataframe(df.head())
