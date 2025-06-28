@@ -3,6 +3,8 @@ import pandas as pd
 import numpy as np
 import re
 from io import StringIO
+import requests
+from io import StringIO
 
 st.set_page_config(page_title="CleanSheet - All-in-One CSV Cleaner", layout="wide")
 st.title("🧹 CleanSheet")
