@@ -115,7 +115,20 @@ else:
 if uploaded_file:
     df = pd.read_csv(uploaded_file)
     df.replace(NULL_VALUES, np.nan, inplace=True)
+    submit = st.form_submit_button("🧼 Clean My Data")
 
+if submit:
+    for col, (action, fill, outliers) in col_config.items():
+        # Cleaning logic remains the same...
+        
+
+    st.success("✅ Data cleaned successfully!")
+    st.write("### 🧼 Final Cleaned Preview")
+    st.dataframe(df.head())
+
+    # ✅ MOVE THIS BUTTON OUTSIDE the form
+    csv_data = df.to_csv(index=False).encode("utf-8")
+    st.download_button("📥 Download CSV", data=csv_data, file_name="cleaned_data.csv", mime="text/csv")
     if st.checkbox("🤖 Show AI Assistant Suggestions", value=True):
         with st.spinner("Thinking..."):
             ai_response = ask_ai_about_data(df)
