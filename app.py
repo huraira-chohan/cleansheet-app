@@ -91,12 +91,16 @@ Suggest how to clean each column. Be practical. Say if it should be normalized, 
 """
 
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3
-        )
-        return response.choices[0].message.content.strip()
+       client = openai.OpenAI(api_key=openai.api_key)
+
+response = client.chat.completions.create(
+    model="gpt-4",
+    messages=[{"role": "user", "content": prompt}],
+    temperature=0.3
+)
+
+return response.choices[0].message.content.strip()
+
     except Exception as e:
         return f"❌ Error: {str(e)}"
 
