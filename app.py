@@ -126,7 +126,7 @@ if uploaded_file:
         st.markdown("### 💡 Assistant Recommendations")
         st.info(ai_response)
 
-   st.write("### ✅ Cleaned Data Preview")
+st.write("### ✅ Cleaned Data Preview")
 
 view_option = st.radio("🔍 How much data do you want to see?", ["Top 5 rows", "Top 50 rows", "All"], horizontal=True)
 
