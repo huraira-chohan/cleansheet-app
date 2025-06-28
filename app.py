@@ -140,28 +140,34 @@ if uploaded_file:
             default_type = type_map.get(guessed, "none")
             index = ["none", "text_normalize", "numeric", "date", "gender", "email_validate", "url_validate", "drop"].index(default_type)
 
-            clean_type = st.selectbox(
-                f"Cleaning rule for `{col}`:",
-                ["none", "text_normalize", "numeric", "date", "gender", "email_validate", "url_validate", "drop"],
-                index=index,
-                key=f"type_{col}"
-            )
+            with st.expander(f"🧠 How should we clean the column `{col}`?"):
+                clean_type = st.radio(
+                    label="Select cleaning method:",
+                    options=["none", "text_normalize", "numeric", "date", "gender", "email_validate", "url_validate", "drop"],
+                    index=index,
+                    key=f"type_{col}"
+                )
 
             numeric_fill_options = ["none", "drop_rows", "fill_mean", "fill_median", "fill_mode"]
             categorical_fill_options = ["none", "drop_rows", "fill_mode"]
             is_numeric = pd.api.types.is_numeric_dtype(df[col])
 
-            fill_missing = st.selectbox(
-                f"Missing value handling for `{col}`:",
-                numeric_fill_options if is_numeric else categorical_fill_options,
-                key=f"null_{col}"
-            )
+            with st.expander(f"❓ What should we do with missing values in `{col}`?"):
+                fill_missing = st.radio(
+                    label="Choose a missing value strategy:",
+                    options=numeric_fill_options if is_numeric else categorical_fill_options,
+                    key=f"null_{col}"
+                )
 
-            handle_outliers = st.checkbox(
-                f"Remove outliers from `{col}` using Z-score",
-                value=False,
-                key=f"outlier_{col}"
-            ) if is_numeric else False
+            if is_numeric:
+                with st.expander(f"⚠️ Do you want to remove outliers from `{col}`?"):
+                    handle_outliers = st.checkbox(
+                        label="Remove outliers using Z-score?",
+                        value=False,
+                        key=f"outlier_{col}"
+                    )
+            else:
+                handle_outliers = False
 
             col_config[col] = (clean_type, fill_missing, handle_outliers)
 
@@ -205,6 +211,7 @@ if uploaded_file:
 
         csv = df.to_csv(index=False).encode("utf-8")
         st.download_button("📥 Download Cleaned CSV", data=csv, file_name="cleansheet_cleaned.csv", mime="text/csv")
+
 
 
 
