@@ -100,8 +100,8 @@ Suggest how to clean each column. Be practical. Say if it should be normalized, 
     except Exception as e:
         return f"❌ Error: {str(e)}"
 
+# Load dataset
 st.sidebar.markdown("### 📦 Load Sample Dataset")
-
 if st.sidebar.button("Load Titanic Dataset"):
     titanic_url = "https://raw.githubusercontent.com/datasciencedojo/datasets/master/titanic.csv"
     response = requests.get(titanic_url)
@@ -110,11 +110,12 @@ if st.sidebar.button("Load Titanic Dataset"):
 else:
     uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
 
+# Proceed if file uploaded
 if uploaded_file:
     df = pd.read_csv(uploaded_file)
     df.replace(NULL_VALUES, np.nan, inplace=True)
-    
-if st.checkbox("🤖 Show AI Assistant Suggestions", value=True):
+
+    if st.checkbox("🤖 Show AI Assistant Suggestions", value=True):
         with st.spinner("Thinking..."):
             ai_response = ask_ai_about_data(df)
         st.markdown("### 💡 Assistant Recommendations")
@@ -142,26 +143,19 @@ if st.checkbox("🤖 Show AI Assistant Suggestions", value=True):
             default_type = "none"
             for val in sample_vals:
                 if re.match(r'^[\w\.-]+@[\w\.-]+\.[a-zA-Z]{2,}$', val):
-                    default_type = "email_validate"
-                    break
+                    default_type = "email_validate"; break
                 elif re.match(r'https?://', val):
-                    default_type = "url_validate"
-                    break
+                    default_type = "url_validate"; break
                 elif re.search(r'\d{1,4}[-/\s][A-Za-z]{3,}|\d{1,4}[-/\s]\d{1,2}', val):
-                    default_type = "date"
-                    break
+                    default_type = "date"; break
                 elif val.strip().lower() in ["m", "f", "male", "female"]:
-                    default_type = "gender"
-                    break
+                    default_type = "gender"; break
                 elif re.search(r'\+?\d{1,3}?[-.\s]?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}', val):
-                    default_type = "text_normalize"
-                    break
+                    default_type = "text_normalize"; break
                 elif re.search(r'(usd|eur|inr|£|\$|€)', val.lower()):
-                    default_type = "text_normalize"
-                    break
+                    default_type = "text_normalize"; break
                 elif re.search(r'^[A-Z]{2,3}$', val.strip()):
-                    default_type = "text_normalize"
-                    break
+                    default_type = "text_normalize"; break
             else:
                 if df[col].dtype == object:
                     default_type = "text_normalize"
@@ -256,3 +250,4 @@ if st.checkbox("🤖 Show AI Assistant Suggestions", value=True):
 
         csv = df.to_csv(index=False).encode("utf-8")
         st.download_button("📥 Download Cleaned CSV", data=csv, file_name="cleansheet_cleaned.csv", mime="text/csv")
+
