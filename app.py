@@ -112,12 +112,23 @@ if uploaded_file:
 
             guessed = ai_guess_column_type(col)
             st.markdown(f"#### Column: `{col}` (AI guess: `{guessed}`)")
-            clean_type = st.selectbox(
-                f"Cleaning rule for `{col}`:",
-                ["none", "text_normalize", "numeric", "date", "gender", "email_validate", "url_validate", "drop"],
-                index=0 if guessed == "unknown" else ["text_normalize", "numeric", "date", "gender", "email_validate", "url_validate", "drop"].index(guessed) if guessed in ["name", "age", "date", "gender", "email", "url"] else 0,
-                key=f"type_{col}"
-            )
+            type_map = {
+    "name": "text_normalize",
+    "age": "numeric",
+    "salary": "numeric",
+    "date": "date",
+    "gender": "gender",
+    "email": "email_validate",
+    "url": "url_validate"
+}
+default_type = type_map.get(guessed, "none")
+index = ["none", "text_normalize", "numeric", "date", "gender", "email_validate", "url_validate", "drop"].index(default_type)
+clean_type = st.selectbox(
+    f"Cleaning rule for `{col}`:",
+    ["none", "text_normalize", "numeric", "date", "gender", "email_validate", "url_validate", "drop"],
+    index=index,
+    key=f"type_{col}"
+)
             fill_missing = st.selectbox(f"Missing value handling for `{col}`:", ["none", "drop_rows", "fill_mean", "fill_median", "fill_mode"], key=f"null_{col}")
             handle_outliers = st.checkbox(f"Remove outliers from `{col}` using Z-score", value=False, key=f"outlier_{col}")
             col_config[col] = (clean_type, fill_missing, handle_outliers)
@@ -162,8 +173,6 @@ if uploaded_file:
 
         csv = df.to_csv(index=False).encode("utf-8")
         st.download_button("📥 Download Cleaned CSV", data=csv, file_name="cleansheet_cleaned.csv", mime="text/csv")
-
-
 
 
 
