@@ -84,8 +84,12 @@ def profile_column(col_data):
 
 def remove_outliers_zscore(series, threshold=3):
     if pd.api.types.is_numeric_dtype(series):
-        z = np.abs(stats.zscore(series.dropna()))
-        return series[(z < threshold).reindex(series.index, fill_value=False)]
+        non_na = series.dropna()
+        z = np.abs(stats.zscore(non_na))
+        mask = (z < threshold)
+        filtered = non_na[mask]
+        return series.where(series.isin(filtered))
+    return series[(z < threshold).reindex(series.index, fill_value=False)]
     return series
 
 # --- APP INTERFACE ---
@@ -139,8 +143,18 @@ if uploaded_file:
                 key=f"type_{col}"
             )
 
-            fill_missing = st.selectbox(f"Missing value handling for `{col}`:", ["none", "drop_rows", "fill_mean", "fill_median", "fill_mode"], key=f"null_{col}")
-            handle_outliers = st.checkbox(f"Remove outliers from `{col}` using Z-score", value=False, key=f"outlier_{col}")
+            numeric_fill_options = ["none", "drop_rows", "fill_mean", "fill_median", "fill_mode"]
+categorical_fill_options = ["none", "drop_rows", "fill_mode"]
+is_numeric = pd.api.types.is_numeric_dtype(df[col])
+fill_missing = st.selectbox(
+    f"Missing value handling for `{col}`:",
+    numeric_fill_options if is_numeric else categorical_fill_options,
+    key=f"null_{col}"
+)
+            handle_outliers = st.checkbox(
+    f"Remove outliers from `{col}` using Z-score", 
+    value=False, 
+    key=f"outlier_{col}") if is_numeric else False
             col_config[col] = (clean_type, fill_missing, handle_outliers)
 
         submit = st.form_submit_button("🧼 Clean My Data")
