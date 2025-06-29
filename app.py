@@ -192,13 +192,12 @@ with tabs[3]:
     st.session_state.active_tab = tab_labels[3]
     st.subheader("🔍 Filter Rows (temporary view only)")
 
-    # Ensure df is defined from clean state
+    # Load clean dataset
     df = st.session_state.get("df_clean", pd.DataFrame()).copy()
-    st.session_state.df_temp = df.copy()  # Save preview before applying
 
-    # Keep full dataset for slider limits
-    if "df_full" not in st.session_state:
-        st.session_state.df_full = df.copy()
+    # Save for filtering preview
+    if "df_temp" not in st.session_state:
+        st.session_state.df_temp = df.copy()
 
     col_to_filter = st.selectbox("Choose column to filter", df.columns.tolist())
     filtered_df = df.copy()
@@ -206,9 +205,8 @@ with tabs[3]:
     # Numeric filtering
     if pd.api.types.is_numeric_dtype(df[col_to_filter]):
         st.write(f"📏 Numeric Range Filter for `{col_to_filter}`")
-        full_col = st.session_state.df_full[col_to_filter]
-        min_val = float(full_col.min())
-        max_val = float(full_col.max())
+        full_col = st.session_state.df_original[col_to_filter] if "df_original" in st.session_state else df[col_to_filter]
+        min_val, max_val = float(full_col.min()), float(full_col.max())
 
         if min_val == max_val:
             st.warning(f"⚠️ All values in `{col_to_filter}` are the same: {min_val}")
@@ -228,10 +226,9 @@ with tabs[3]:
     elif pd.api.types.is_datetime64_any_dtype(df[col_to_filter]) or "date" in col_to_filter.lower():
         st.write(f"🗓 Date Range Filter for `{col_to_filter}`")
         df[col_to_filter] = pd.to_datetime(df[col_to_filter], errors='coerce')
-        st.session_state.df_full[col_to_filter] = pd.to_datetime(st.session_state.df_full[col_to_filter], errors='coerce')
-        full_col = st.session_state.df_full[col_to_filter]
-        min_date = full_col.min()
-        max_date = full_col.max()
+        full_col = st.session_state.df_original[col_to_filter] if "df_original" in st.session_state else df[col_to_filter]
+        min_date = pd.to_datetime(full_col.min(), errors="coerce")
+        max_date = pd.to_datetime(full_col.max(), errors="coerce")
 
         if pd.isnull(min_date) or pd.isnull(max_date):
             st.warning(f"⚠️ Could not convert `{col_to_filter}` to datetime.")
@@ -248,7 +245,8 @@ with tabs[3]:
     # Categorical filtering
     else:
         st.write(f"🔠 Categorical Filter for `{col_to_filter}`")
-        unique_vals = st.session_state.df_full[col_to_filter].dropna().unique().tolist()
+        full_col = st.session_state.df_original[col_to_filter] if "df_original" in st.session_state else df[col_to_filter]
+        unique_vals = full_col.dropna().unique().tolist()
 
         if not unique_vals:
             st.warning("⚠️ No valid values to filter.")
@@ -268,13 +266,11 @@ with tabs[3]:
     st.dataframe(filtered_df, use_container_width=True)
 
     # --- Apply filter to export ---
-    st.markdown("### 📤 Apply Filter to Export?")
-
     if st.button("✅ Apply Filter"):
-        st.session_state.df_backup = st.session_state.df_clean.copy()  # Save for undo
-        st.session_state.df_clean = filtered_df.copy()
-        st.session_state.df_temp = filtered_df.copy()
-        st.success("✅ Filter applied to exported dataset (affects Export tab)")
+        st.session_state.df_backup = st.session_state.df_clean.copy()  # for undo
+        st.session_state.df_clean = filtered_df.copy()  # permanent export update
+        st.session_state.df_temp = filtered_df.copy()   # temporary preview update
+        st.success("✅ Filter applied to exported dataset.")
 
     # --- Undo / Reset ---
     col1, col2 = st.columns(2)
@@ -283,9 +279,9 @@ with tabs[3]:
             if "df_backup" in st.session_state:
                 st.session_state.df_clean = st.session_state.df_backup.copy()
                 st.session_state.df_temp = st.session_state.df_backup.copy()
-                st.success("🔁 Undo successful. Reverted to previous dataset.")
+                st.success("🔁 Undo successful. Reverted to previous filtered dataset.")
             else:
-                st.warning("⚠️ No previous dataset found to undo.")
+                st.warning("⚠️ No backup available to undo.")
 
     with col2:
         if st.button("🔄 Reset to Original Uploaded Dataset"):
@@ -294,7 +290,7 @@ with tabs[3]:
                 st.session_state.df_temp = st.session_state.df_original.copy()
                 st.success("✅ Reset to original uploaded dataset.")
             else:
-                st.warning("⚠️ No original dataset available.")
+                st.warning("⚠️ No original dataset found.")
 
 
 
