@@ -295,9 +295,10 @@ with tab5:
         st.success(f"✅ Removed {before - after} duplicate rows")
         st.session_state.df_clean = df
 # --- Advanced Filter Tab ---
-tab7 = st.tabs(["🧠 Advanced Filter"])[0]
+tab6 = st.tabs(["🧠 Advanced Filter"])[0]
 
-with tab7:
+with tab6:
+   with tab7:
     st.subheader("🧠 Advanced Multi-Column Filtering")
 
     if df.empty:
@@ -308,35 +309,43 @@ with tab7:
     num_conditions = st.number_input("How many filter conditions?", min_value=1, max_value=5, value=1)
     logic = st.radio("Combine filters using:", ["AND", "OR"], horizontal=True)
 
-    # Collect all filter conditions
     conditions = []
+
     for i in range(int(num_conditions)):
         st.markdown(f"### ➕ Condition #{i+1}")
         col = st.selectbox(f"Choose column", df.columns, key=f"col_{i}")
         dtype = df[col].dtype
 
-        # Numeric Filtering
         if pd.api.types.is_numeric_dtype(dtype):
             min_val, max_val = float(df[col].min()), float(df[col].max())
-            range_val = st.slider(f"Range for `{col}`", min_val, max_val, (min_val, max_val), key=f"range_{i}")
-            cond = df[col].between(range_val[0], range_val[1])
+            if min_val != max_val:
+                range_val = st.slider(
+                    f"Range for `{col}`", min_val, max_val, (min_val, max_val),
+                    step=(max_val - min_val) / 100, key=f"range_{i}"
+                )
+                cond = df[col].between(range_val[0], range_val[1])
+            else:
+                st.warning(f"🔒 `{col}` has a constant value ({min_val})")
+                cond = pd.Series([True] * len(df))
 
-        # Date Filtering
         elif pd.api.types.is_datetime64_any_dtype(dtype):
             df[col] = pd.to_datetime(df[col], errors="coerce")
             min_date, max_date = df[col].min(), df[col].max()
-            start_date, end_date = st.date_input(f"Date range for `{col}`", (min_date, max_date), key=f"date_{i}")
-            cond = df[col].between(start_date, end_date)
+            date_start, date_end = st.date_input(
+                f"Date range for `{col}`", (min_date, max_date), key=f"date_{i}"
+            )
+            cond = df[col].between(date_start, date_end)
 
-        # Categorical Filtering
         else:
             values = df[col].dropna().unique().tolist()
             selected = st.multiselect(f"Select values for `{col}`", values, key=f"cat_{i}")
-            cond = df[col].isin(selected)
+            if selected:
+                cond = df[col].isin(selected)
+            else:
+                cond = pd.Series([True] * len(df))  # no filtering
 
         conditions.append(cond)
 
-    # Combine all conditions
     if conditions:
         combined = conditions[0]
         for c in conditions[1:]:
@@ -349,33 +358,31 @@ with tab7:
         st.markdown("---")
         col1, col2, col3 = st.columns(3)
 
-        # ✅ Apply Filtered View
         with col1:
             if st.button("✅ Apply Filters"):
                 st.session_state.df_clean = filtered_df.copy()
-                st.success("✅ Filtered data applied to Export tab and all other views.")
+                st.success("✅ Applied to Export tab and all views.")
 
-        # ↩️ Undo
         with col2:
             if st.button("↩️ Undo Last Filter"):
-                if "df_clean" in st.session_state:
+                if "df_clean" in st.session_state and "df_original" in st.session_state:
                     df = st.session_state.df_clean.copy()
-                    st.info("🔁 Reverted to last cleaned dataset.")
+                    st.success("🔁 Reverted to last cleaned dataset.")
                 else:
-                    st.warning("⚠️ No cleaned dataset to undo.")
+                    st.warning("⚠️ Nothing to undo.")
 
-        # 🔄 Reset to Original
         with col3:
             if st.button("🔄 Reset to Original Data"):
                 if "df_original" in st.session_state:
                     df = st.session_state.df_original.copy()
                     st.session_state.df_clean = df.copy()
-                    st.success("✅ Dataset reset to original uploaded file.")
+                    st.success("✅ Reset to original uploaded dataset.")
                 else:
                     st.warning("⚠️ No original dataset available.")
 
+
 # --- Export Tab ---
-with tab6:
+with tab7:
     st.subheader("⬇️ Export Cleaned CSV")
 
     export_view = st.radio("How much data to preview?", ["Top 5", "Top 50", "All"], horizontal=True, key="export_view")
