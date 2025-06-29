@@ -318,103 +318,109 @@ with tabs[4]:
 
 with tabs[5]:
     st.session_state.active_tab = tab_labels[5]
-    columns = df.columns.tolist()
-    st.subheader("🧠 Advanced Multi-Column Filtering")
+    st.subheader("🧠 Advanced Multi-Column Filtering (Export Only)")
+
+    df = st.session_state.get("df_clean", pd.DataFrame()).copy()
 
     if df.empty:
         st.warning("⚠️ No dataset loaded.")
         st.stop()
 
-    # Select number of filters
     num_conditions = st.number_input("How many filter conditions?", min_value=1, max_value=5, value=1)
     logic = st.radio("Combine filters using:", ["AND", "OR"], horizontal=True)
 
     conditions = []
-
     for i in range(int(num_conditions)):
         st.markdown(f"### ➕ Condition #{i+1}")
-        col = st.selectbox(f"Choose column", df.columns, key=f"col_{i}")
+        col = st.selectbox(f"Choose column", df.columns, key=f"adv_col_{i}")
         dtype = df[col].dtype
 
+        # Numeric
         if pd.api.types.is_numeric_dtype(dtype):
             min_val, max_val = float(df[col].min()), float(df[col].max())
-            if min_val != max_val:
-                range_val = st.slider(
-                    f"Range for `{col}`", min_val, max_val, (min_val, max_val),
-                    step=(max_val - min_val) / 100, key=f"range_{i}"
-                )
-                cond = df[col].between(range_val[0], range_val[1])
-            else:
-                st.warning(f"🔒 `{col}` has a constant value ({min_val})")
+            if min_val == max_val:
+                st.warning(f"⚠️ All values in `{col}` are the same: {min_val}")
                 cond = pd.Series([True] * len(df))
+            else:
+                range_val = st.slider(f"Range for `{col}`", min_val, max_val, (min_val, max_val), key=f"adv_range_{i}")
+                cond = df[col].between(range_val[0], range_val[1])
 
-        elif pd.api.types.is_datetime64_any_dtype(dtype):
+        # Datetime
+        elif pd.api.types.is_datetime64_any_dtype(dtype) or "date" in col.lower():
             df[col] = pd.to_datetime(df[col], errors="coerce")
             min_date, max_date = df[col].min(), df[col].max()
-            date_start, date_end = st.date_input(
-                f"Date range for `{col}`", (min_date, max_date), key=f"date_{i}"
-            )
-            cond = df[col].between(date_start, date_end)
+            if pd.isnull(min_date) or pd.isnull(max_date):
+                st.warning(f"⚠️ Cannot parse `{col}` as datetime.")
+                cond = pd.Series([True] * len(df))
+            else:
+                start_date, end_date = st.date_input(f"Date range for `{col}`", (min_date, max_date), key=f"adv_date_{i}")
+                cond = df[col].between(start_date, end_date)
 
+        # Categorical
         else:
             values = df[col].dropna().unique().tolist()
-            selected = st.multiselect(f"Select values for `{col}`", values, key=f"cat_{i}")
-            if selected:
-                cond = df[col].isin(selected)
-            else:
-                cond = pd.Series([True] * len(df))  # no filtering
+            selected = st.multiselect(f"Select values for `{col}`", values, key=f"adv_cat_{i}")
+            cond = df[col].isin(selected) if selected else pd.Series([True] * len(df))
 
         conditions.append(cond)
 
+    # Combine all
     if conditions:
         combined = conditions[0]
         for c in conditions[1:]:
             combined = combined & c if logic == "AND" else combined | c
 
-        filtered_df = df[combined]
-        st.success(f"✅ {len(filtered_df)} rows matched your filters.")
-        st.dataframe(filtered_df, use_container_width=True)
+        # Safe length check
+        if len(combined) == len(df):
+            filtered_df = df[combined]
+            st.dataframe(filtered_df, use_container_width=True)
+            st.success(f"✅ {len(filtered_df)} rows matched your filters.")
+        else:
+            st.error("❌ Filter condition length mismatch.")
+            st.stop()
 
-        st.markdown("---")
-        col1, col2, col3 = st.columns(3)
+    # Controls
+    col1, col2, col3 = st.columns(3)
 
-        with col1:
-            if st.button("✅ Apply Filters"):
-                st.session_state.df_clean = filtered_df.copy()
-                st.success("✅ Applied to Export tab and all views.")
+    with col1:
+        if st.button("✅ Apply Filters to Export"):
+            st.session_state.df_export = filtered_df.copy()
+            st.success("✅ Filters applied to export only.")
 
-        with col2:
-            if st.button("↩️ Undo Last Filter", key="undo_advanced_filter"):
-                if "df_clean" in st.session_state and "df_original" in st.session_state:
-                    df = st.session_state.df_clean.copy()
-                    st.success("🔁 Reverted to last cleaned dataset.")
-                else:
-                    st.warning("⚠️ Nothing to undo.")
+    with col2:
+        if st.button("↩️ Undo Export Filter"):
+            if "df_clean" in st.session_state:
+                st.session_state.df_export = st.session_state.df_clean.copy()
+                st.info("🔁 Reverted export to cleaned dataset.")
+            else:
+                st.warning("⚠️ No cleaned dataset found.")
 
-        with col3:
-            if st.button("🔄 Reset to Original Data", key="reset_advanced_filter"):
-                if "df_original" in st.session_state:
-                    df = st.session_state.df_original.copy()
-                    st.session_state.df_clean = df.copy()
-                    st.success("✅ Reset to original uploaded dataset.")
-                else:
-                    st.warning("⚠️ No original dataset available.")
+    with col3:
+        if st.button("🔄 Reset Export to Original"):
+            if "df_original" in st.session_state:
+                st.session_state.df_export = st.session_state.df_original.copy()
+                st.success("✅ Export reset to original dataset.")
+            else:
+                st.warning("⚠️ No original dataset found.")
+
 
 
 # --- Export Tab ---
 with tabs[6]:
     st.session_state.active_tab = tab_labels[6]
-    columns = df.columns.tolist()
     st.subheader("⬇️ Export Cleaned CSV")
+
+    # Use export-specific filtered data if available
+    export_df = st.session_state.get("df_export", st.session_state.get("df_clean", pd.DataFrame()))
 
     export_view = st.radio("How much data to preview?", ["Top 5", "Top 50", "All"], horizontal=True, key="export_view")
     if export_view == "Top 5":
-        st.dataframe(df.head(), use_container_width=True)
+        st.dataframe(export_df.head(), use_container_width=True)
     elif export_view == "Top 50":
-        st.dataframe(df.head(50), use_container_width=True)
+        st.dataframe(export_df.head(50), use_container_width=True)
     else:
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(export_df, use_container_width=True)
 
-    csv = df.to_csv(index=False).encode("utf-8")
+    csv = export_df.to_csv(index=False).encode("utf-8")
     st.download_button("📥 Download Cleaned CSV", csv, "cleaned_data.csv", "text/csv")
 
