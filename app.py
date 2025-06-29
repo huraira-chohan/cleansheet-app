@@ -89,6 +89,35 @@ else:
 tab_labels = ["📊 Preview", "🧹 Clean", "🧮 Columns", "🔍 Filter", "📈 Sort", "🧠 Advanced Filter", "⬇️ Export"]
 tab_index = tab_labels.index(st.session_state.active_tab)
 tabs = st.tabs(tab_labels)
+def auto_clean_column(series):
+    import dateutil.parser
+
+    # Try to convert to numeric
+    try:
+        numeric_series = series.apply(lambda x: pd.to_numeric(x, errors='coerce'))
+        if numeric_series.notna().sum() >= series.notna().sum() * 0.8:
+            return numeric_series
+    except:
+        pass
+
+    # Try to parse as datetime
+    try:
+        date_series = series.apply(lambda x: pd.to_datetime(x, errors='coerce', infer_datetime_format=True))
+        if date_series.notna().sum() >= series.notna().sum() * 0.8:
+            return date_series
+    except:
+        pass
+
+    # Normalize categorical values (like gender, yes/no)
+    unique_vals = series.dropna().astype(str).str.strip().str.lower().unique()
+    if len(unique_vals) <= 10:
+        return series.astype(str).str.strip().str.lower().replace({
+            "yes": "Yes", "y": "Yes", "1": "Yes",
+            "no": "No", "n": "No", "0": "No",
+            "m": "Male", "f": "Female"
+        }).str.title()
+
+    return series
 
 # --- Preview Tab ---
 with tabs[0]:
@@ -110,7 +139,46 @@ with tabs[1]:
     st.subheader("🔎 Clean Columns")
     st.session_state.active_tab = tab_labels[1]
     columns = df.columns.tolist()
+st.session_state.active_tab = tab_labels[1]
+    st.subheader("🧹 Clean Column Values")
 
+    df = st.session_state.get("df_clean", pd.DataFrame()).copy()
+
+    if df.empty:
+        st.warning("⚠️ No dataset loaded.")
+        st.stop()
+
+    selected_col = st.selectbox("Select column to clean", df.columns)
+
+    clean_opt = st.selectbox(
+        "Choose cleaning operation",
+        ["-- Select --", "Remove NaNs", "Fill NaNs with 0", "Convert to lowercase", "Convert to title case", "Auto Detect & Clean"]
+    )
+
+    if clean_opt != "-- Select --":
+        if clean_opt == "Remove NaNs":
+            df = df[df[selected_col].notna()]
+            st.success("✅ NaN values removed.")
+
+        elif clean_opt == "Fill NaNs with 0":
+            df[selected_col] = df[selected_col].fillna(0)
+            st.success("✅ NaNs filled with 0.")
+
+        elif clean_opt == "Convert to lowercase":
+            df[selected_col] = df[selected_col].astype(str).str.lower()
+            st.success("✅ Converted to lowercase.")
+
+        elif clean_opt == "Convert to title case":
+            df[selected_col] = df[selected_col].astype(str).str.title()
+            st.success("✅ Converted to title case.")
+
+        elif clean_opt == "Auto Detect & Clean":
+            df[selected_col] = auto_clean_column(df[selected_col])
+            st.success("✅ Auto cleaning applied.")
+
+        # Update session state
+        st.session_state.df_clean = df.copy()
+        st.dataframe(df, use_container_width=True)
     for col in columns:
         with st.expander(f"⚙️ {col}"):
             clean_opt = st.selectbox(f"Cleaning for `{col}`", [
