@@ -84,7 +84,7 @@ else:
 
 # --- Tabs for navigation ---
 tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-    "📊 Preview", "🧹 Clean", "🧮 Columns", "🔍 Filter", "📈 Sort", "⬇️ Export", "🧠 Advanced Filter"
+    "📊 Preview", "🧹 Clean", "🧮 Columns", "🔍 Filter", "📈 Sort", "🧠 Advanced Filter", "⬇️ Export"
 ])
 
 # --- Preview Tab ---
