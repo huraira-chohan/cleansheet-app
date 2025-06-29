@@ -83,10 +83,10 @@ else:
     st.stop()
 
 # --- Tabs for navigation ---
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "📊 Preview", "🧹 Clean", "🧮 Columns", "🔍 Filter", "📈 Sort", "⬇️ Export"
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    "📊 Preview", "🧹 Clean", "🧮 Columns", "🔍 Filter", "📈 Sort", "⬇️ Export", "🧠 Advanced Filter"
 ])
-tab7 = st.tabs(["🧠 Advanced Filter"])[0]
+
 # --- Preview Tab ---
 with tab1:
     st.subheader("🔎 Dataset Preview")
