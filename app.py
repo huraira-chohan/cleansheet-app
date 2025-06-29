@@ -185,6 +185,8 @@ with tab4:
     st.subheader("🔍 Filter Rows (temporary view only)")
     col_to_filter = st.selectbox("Choose column to filter", df.columns.tolist())
 
+    filtered_df = df  # default: unfiltered
+
     if pd.api.types.is_numeric_dtype(df[col_to_filter]):
         st.write(f"📏 Numeric Range Filter for `{col_to_filter}`")
         min_val = float(df[col_to_filter].min())
@@ -227,19 +229,23 @@ with tab4:
             st.dataframe(df, use_container_width=True)
             st.caption("No filter applied — showing full dataset.")
 
-    if apply_filter:
-        st.session_state.df_clean = filtered_df
-        st.success("✅ Filter applied to exported data.")
+    # ✅ Checkbox to apply the filter to the export dataset
     st.markdown("---")
-    col1, col2 = st.columns(2)
+    apply_filter = st.checkbox("📤 Apply this filter to the export dataset")
 
+    if apply_filter:
+        st.session_state.df_clean = filtered_df.copy()
+        st.success("✅ Filter applied to exported dataset (it will appear in Export tab)")
+
+    # 🔁 Undo and Reset Buttons
+    col1, col2 = st.columns(2)
     with col1:
         if st.button("↩️ Undo Last Filter"):
             if "df_clean" in st.session_state:
-                df = st.session_state.df_clean
-                st.info("🔁 Reverted to last saved cleaned dataset (before this filter).")
+                df = st.session_state.df_clean.copy()
+                st.info("🔁 Reverted to last cleaned dataset.")
             else:
-                st.warning("⚠️ No previous cleaned dataset found to undo.")
+                st.warning("⚠️ No cleaned dataset to undo.")
 
     with col2:
         if st.button("🔄 Reset to Original Uploaded Dataset"):
