@@ -13,6 +13,9 @@ import re
 from io import StringIO
 import requests
 
+if "active_tab" not in st.session_state:
+    st.session_state.active_tab = "📊 Preview"
+
 st.set_page_config(page_title="CleanSheet - All-in-One CSV Cleaner", layout="wide")
 st.title("🧹 CleanSheet")
 st.caption("An all-in-one, no-code data cleaning assistant")
@@ -83,12 +86,13 @@ else:
     st.stop()
 
 # --- Tabs for navigation ---
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-    "📊 Preview", "🧹 Clean", "🧮 Columns", "🔍 Filter", "📈 Sort", "🧠 Advanced Filter", "⬇️ Export"
-])
+tab_labels = ["📊 Preview", "🧹 Clean", "🧮 Columns", "🔍 Filter", "📈 Sort", "🧠 Advanced Filter", "⬇️ Export"]
+tab_index = tab_labels.index(st.session_state.active_tab)
+tabs = st.tabs(tab_labels)
 
 # --- Preview Tab ---
-with tab1:
+with tabs[0]:
+    st.session_state.active_tab = tab_labels[0]
     st.subheader("🔎 Dataset Preview")
     view_opt = st.radio("How much data to show?", ["Top 5", "Top 50", "All"], horizontal=True)
     if view_opt == "Top 5":
@@ -102,8 +106,9 @@ with tab1:
     st.dataframe(df.describe(include='all').T.fillna("N/A"))
 
 # --- Clean Tab ---
-with tab2:
-    st.subheader("🧼 Clean Columns")
+with tabs[1]:
+    st.subheader("🔎 Clean Columns")
+    st.session_state.active_tab = tab_labels[1]
     columns = df.columns.tolist()
 
     for col in columns:
@@ -135,7 +140,9 @@ with tab2:
                 st.session_state.df_clean = df
 
 # --- Column Tab ---
-with tab3:
+with tabs[2]:
+    st.session_state.active_tab = tab_labels[2]
+    columns = df.columns.tolist()
     st.subheader("🧮 Manage Columns")
 
     col1, col2 = st.columns(2)
@@ -181,7 +188,9 @@ with tab3:
 
 
 #--- Filter Tab ---
-with tab4:
+with tabs[3]:
+    st.session_state.active_tab = tab_labels[3]
+    columns = df.columns.tolist()
     st.subheader("🔍 Filter Rows (temporary view only)")
 
     col_to_filter = st.selectbox("Choose column to filter", df.columns.tolist())
@@ -277,7 +286,9 @@ with tab4:
 
 
 # --- Sort Tab ---
-with tab5:
+with tabs[4]:
+    st.session_state.active_tab = tab_labels[4]
+    columns = df.columns.tolist()
     st.subheader("📈 Sort Data")
     st.info("ℹ️ Use the Reset button at the top to undo any sort or filter applied.")
     sort_col = st.selectbox("Column to sort by", df.columns.tolist())
@@ -297,7 +308,9 @@ with tab5:
 # --- Advanced Filter Tab ---
 tab6 = st.tabs(["🧠 Advanced Filter"])[0]
 
-with tab6:
+with tabs[5]:
+    st.session_state.active_tab = tab_labels[5]
+    columns = df.columns.tolist()
     st.subheader("🧠 Advanced Multi-Column Filtering")
 
     if df.empty:
@@ -381,7 +394,9 @@ with tab6:
 
 
 # --- Export Tab ---
-with tab7:
+with tabs[6]:
+    st.session_state.active_tab = tab_labels[6]
+    columns = df.columns.tolist()
     st.subheader("⬇️ Export Cleaned CSV")
 
     export_view = st.radio("How much data to preview?", ["Top 5", "Top 50", "All"], horizontal=True, key="export_view")
