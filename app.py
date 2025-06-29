@@ -182,15 +182,19 @@ with tab3:
 
 # --- Filter Tab ---
 with tab4:
-    st.subheader("🔍 Filter Rows")
-    col_to_filter = st.selectbox("Choose column", df.columns.tolist())
+    st.subheader("🔍 Filter Rows (temporary view only)")
+    col_to_filter = st.selectbox("Choose column to filter", df.columns.tolist())
     unique_vals = df[col_to_filter].dropna().unique().tolist()
-
     selected_vals = st.multiselect(f"Show rows where `{col_to_filter}` is:", unique_vals)
+
     if selected_vals:
-        df = df[df[col_to_filter].isin(selected_vals)]
-        st.session_state.df_clean = df
-        st.success("✅ Filter applied")
+        filtered_df = df[df[col_to_filter].isin(selected_vals)]
+        st.dataframe(filtered_df, use_container_width=True)
+        st.info("Showing filtered view. Your original dataset is not affected.")
+    else:
+        st.dataframe(df, use_container_width=True)
+        st.caption("No filter applied — showing full dataset.")
+
 
 # --- Sort Tab ---
 with tab5:
