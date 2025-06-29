@@ -298,7 +298,6 @@ with tab5:
 tab6 = st.tabs(["🧠 Advanced Filter"])[0]
 
 with tab6:
-   with tab7:
     st.subheader("🧠 Advanced Multi-Column Filtering")
 
     if df.empty:
@@ -364,7 +363,7 @@ with tab6:
                 st.success("✅ Applied to Export tab and all views.")
 
         with col2:
-            if st.button("↩️ Undo Last Filter"):
+            if st.button("↩️ Undo Last Filter", key="undo_advanced_filter")::
                 if "df_clean" in st.session_state and "df_original" in st.session_state:
                     df = st.session_state.df_clean.copy()
                     st.success("🔁 Reverted to last cleaned dataset.")
@@ -372,7 +371,7 @@ with tab6:
                     st.warning("⚠️ Nothing to undo.")
 
         with col3:
-            if st.button("🔄 Reset to Original Data"):
+            if st.button("🔄 Reset to Original Data", key="reset_advanced_filter"):
                 if "df_original" in st.session_state:
                     df = st.session_state.df_original.copy()
                     st.session_state.df_clean = df.copy()
