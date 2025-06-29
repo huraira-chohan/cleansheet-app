@@ -269,9 +269,8 @@ with tabs[3]:
 
     # --- Apply filter to export ---
     st.markdown("### 📤 Apply Filter to Export?")
-    apply_filter = st.checkbox("✅ Apply this filter to the export dataset")
 
-    if apply_filter:
+    if st.button("✅ Apply Filter"):
         st.session_state.df_backup = st.session_state.df_clean.copy()  # Save for undo
         st.session_state.df_clean = filtered_df.copy()
         st.session_state.df_temp = filtered_df.copy()
