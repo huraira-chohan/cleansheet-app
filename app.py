@@ -187,20 +187,20 @@ with tabs[2]:
             st.session_state.df_clean = df
 
 
-#--- Filter Tab ---
+# --- Filter Tab ---
 with tabs[3]:
     st.session_state.active_tab = tab_labels[3]
-    columns = df.columns.tolist()
     st.subheader("🔍 Filter Rows (temporary view only)")
 
-    col_to_filter = st.selectbox("Choose column to filter", df.columns.tolist())
-    filtered_df = df.copy()
+    df_filter_base = st.session_state.df_clean.copy()
+    col_to_filter = st.selectbox("Choose column to filter", df_filter_base.columns.tolist())
+    filtered_df = df_filter_base.copy()
 
     # Numeric filtering
-    if pd.api.types.is_numeric_dtype(df[col_to_filter]):
+    if pd.api.types.is_numeric_dtype(df_filter_base[col_to_filter]):
         st.write(f"📏 Numeric Range Filter for `{col_to_filter}`")
-        min_val = float(df[col_to_filter].min())
-        max_val = float(df[col_to_filter].max())
+        min_val = float(df_filter_base[col_to_filter].min())
+        max_val = float(df_filter_base[col_to_filter].max())
 
         if min_val == max_val:
             st.warning(f"⚠️ All values in `{col_to_filter}` are the same: {min_val}")
@@ -213,16 +213,16 @@ with tabs[3]:
                 value=(min_val, max_val),
                 step=step_val
             )
-            filtered_df = df[df[col_to_filter].between(start, end)]
+            filtered_df = df_filter_base[df_filter_base[col_to_filter].between(start, end)]
             st.dataframe(filtered_df, use_container_width=True)
             st.info(f"Showing rows where `{col_to_filter}` is between {start:.2f} and {end:.2f}.")
 
     # Datetime filtering
-    elif pd.api.types.is_datetime64_any_dtype(df[col_to_filter]) or "date" in col_to_filter.lower():
+    elif pd.api.types.is_datetime64_any_dtype(df_filter_base[col_to_filter]) or "date" in col_to_filter.lower():
         st.write(f"🗓 Date Range Filter for `{col_to_filter}`")
-        df[col_to_filter] = pd.to_datetime(df[col_to_filter], errors='coerce')
-        min_date = df[col_to_filter].min()
-        max_date = df[col_to_filter].max()
+        df_filter_base[col_to_filter] = pd.to_datetime(df_filter_base[col_to_filter], errors='coerce')
+        min_date = df_filter_base[col_to_filter].min()
+        max_date = df_filter_base[col_to_filter].max()
 
         if pd.isnull(min_date) or pd.isnull(max_date):
             st.warning(f"⚠️ Could not convert `{col_to_filter}` to datetime.")
@@ -233,14 +233,14 @@ with tabs[3]:
                 min_value=min_date,
                 max_value=max_date
             )
-            filtered_df = df[df[col_to_filter].between(date_start, date_end)]
+            filtered_df = df_filter_base[df_filter_base[col_to_filter].between(date_start, date_end)]
             st.dataframe(filtered_df, use_container_width=True)
             st.info(f"Showing rows where `{col_to_filter}` is between {date_start} and {date_end}.")
 
     # Categorical filtering
     else:
         st.write(f"🔠 Categorical Filter for `{col_to_filter}`")
-        unique_vals = df[col_to_filter].dropna().unique().tolist()
+        unique_vals = df_filter_base[col_to_filter].dropna().unique().tolist()
 
         if not unique_vals:
             st.warning("⚠️ No valid values to filter.")
@@ -250,11 +250,11 @@ with tabs[3]:
                 options=unique_vals
             )
             if selected_vals:
-                filtered_df = df[df[col_to_filter].isin(selected_vals)]
+                filtered_df = df_filter_base[df_filter_base[col_to_filter].isin(selected_vals)]
                 st.dataframe(filtered_df, use_container_width=True)
                 st.info(f"Filtered by selected values in `{col_to_filter}`.")
             else:
-                st.dataframe(df, use_container_width=True)
+                st.dataframe(df_filter_base, use_container_width=True)
                 st.caption("No filter applied — showing full dataset.")
 
     # --- Apply filter to export ---
@@ -262,6 +262,7 @@ with tabs[3]:
     apply_filter = st.checkbox("✅ Apply this filter to the export dataset")
 
     if apply_filter:
+        st.session_state.df_previous = st.session_state.df_clean.copy()  # save current for undo
         st.session_state.df_clean = filtered_df.copy()
         st.success("✅ Filter applied to exported dataset (affects Export tab only)")
 
@@ -269,18 +270,17 @@ with tabs[3]:
     col1, col2 = st.columns(2)
     with col1:
         if st.button("↩️ Undo Last Filter"):
-            if "df_clean" in st.session_state:
-                df = st.session_state.df_clean.copy()
-                st.info("🔁 Reverted to last cleaned dataset.")
+            if "df_previous" in st.session_state:
+                st.session_state.df_clean = st.session_state.df_previous.copy()
+                st.success("🔁 Undo successful. Export dataset reverted.")
             else:
-                st.warning("⚠️ No cleaned dataset found.")
+                st.warning("⚠️ No previous filtered dataset to undo.")
 
     with col2:
         if st.button("🔄 Reset to Original Uploaded Dataset"):
             if "df_original" in st.session_state:
-                df = st.session_state.df_original.copy()
-                st.session_state.df_clean = df.copy()
-                st.success("✅ Reset to original uploaded data.")
+                st.session_state.df_clean = st.session_state.df_original.copy()
+                st.success("✅ Reset to original uploaded dataset.")
             else:
                 st.warning("⚠️ No original dataset found.")
 
