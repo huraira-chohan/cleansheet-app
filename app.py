@@ -227,6 +227,28 @@ with tab4:
             st.dataframe(df, use_container_width=True)
             st.caption("No filter applied — showing full dataset.")
 
+    if apply_filter:
+        st.session_state.df_clean = filtered_df
+        st.success("✅ Filter applied to exported data.")
+    st.markdown("---")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("↩️ Undo Last Filter"):
+            if "df_clean" in st.session_state:
+                df = st.session_state.df_clean
+                st.info("🔁 Reverted to last saved cleaned dataset (before this filter).")
+            else:
+                st.warning("⚠️ No previous cleaned dataset found to undo.")
+
+    with col2:
+        if st.button("🔄 Reset to Original Uploaded Dataset"):
+            if "df_original" in st.session_state:
+                df = st.session_state.df_original.copy()
+                st.session_state.df_clean = df.copy()
+                st.success("✅ Reset to original uploaded data.")
+            else:
+                st.warning("⚠️ No original dataset available.")
 
 
 # --- Sort Tab ---
