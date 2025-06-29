@@ -315,89 +315,157 @@ with tabs[4]:
         st.success(f"✅ Removed {before - after} duplicate rows")
         st.session_state.df_clean = df
 
+# --- Advanced Filter Tab ---
 with tabs[5]:
     st.session_state.active_tab = tab_labels[5]
-    columns = df.columns.tolist()
     st.subheader("🧠 Advanced Multi-Column Filtering")
+    st.info("ℹ️ This filter allows combining multiple conditions using AND/OR logic.")
+    st.markdown("---")
 
-    if df.empty:
-        st.warning("⚠️ No dataset loaded.")
+    # Use a fresh copy of the clean DataFrame for temporary filtering
+    current_df_for_advanced_filtering = st.session_state.get("df_clean", pd.DataFrame()).copy()
+
+    if current_df_for_advanced_filtering.empty:
+        st.warning("⚠️ No data available for advanced filtering. Please upload or process data first.")
         st.stop()
 
     # Select number of filters
-    num_conditions = st.number_input("How many filter conditions?", min_value=1, max_value=5, value=1)
-    logic = st.radio("Combine filters using:", ["AND", "OR"], horizontal=True)
+    num_conditions = st.number_input("How many filter conditions?", min_value=1, max_value=5, value=1, key="num_conditions_input")
+    logic = st.radio("Combine filters using:", ["AND", "OR"], horizontal=True, key="logic_radio")
 
     conditions = []
+    st.markdown("---")
 
     for i in range(int(num_conditions)):
         st.markdown(f"### ➕ Condition #{i+1}")
-        col = st.selectbox(f"Choose column", df.columns, key=f"col_{i}")
-        dtype = df[col].dtype
+        col = st.selectbox(f"Choose column for condition #{i+1}", current_df_for_advanced_filtering.columns, key=f"adv_col_{i}")
+        
+        # Get the dtype of the selected column in the CURRENT dataframe
+        dtype = current_df_for_advanced_filtering[col].dtype
+
+        # Use df_full for min/max/unique values to maintain consistent filter ranges
+        # Coerce to appropriate type first and handle potential NaNs
+        full_data_col = st.session_state.df_full[col]
 
         if pd.api.types.is_numeric_dtype(dtype):
-            min_val, max_val = float(df[col].min()), float(df[col].max())
-            if min_val != max_val:
-                range_val = st.slider(
-                    f"Range for `{col}`", min_val, max_val, (min_val, max_val),
-                    step=(max_val - min_val) / 100, key=f"range_{i}"
-                )
-                cond = df[col].between(range_val[0], range_val[1])
-            else:
-                st.warning(f"🔒 `{col}` has a constant value ({min_val})")
-                cond = pd.Series([True] * len(df))
+            # Numeric values should be extracted from the full_data_col
+            numeric_full_col = pd.to_numeric(full_data_col, errors='coerce').dropna()
 
-        elif pd.api.types.is_datetime64_any_dtype(dtype):
-            df[col] = pd.to_datetime(df[col], errors="coerce")
-            min_date, max_date = df[col].min(), df[col].max()
-            date_start, date_end = st.date_input(
-                f"Date range for `{col}`", (min_date, max_date), key=f"date_{i}"
-            )
-            cond = df[col].between(date_start, date_end)
-
-        else:
-            values = df[col].dropna().unique().tolist()
-            selected = st.multiselect(f"Select values for `{col}`", values, key=f"cat_{i}")
-            if selected:
-                cond = df[col].isin(selected)
+            if numeric_full_col.empty:
+                st.warning(f"🔒 `{col}` has no valid numeric values for filtering.")
+                # FIX: Ensure 'True' Series has the correct index from the target DataFrame
+                cond = pd.Series([True] * len(current_df_for_advanced_filtering), index=current_df_for_advanced_filtering.index)
             else:
-                cond = pd.Series([True] * len(df))  # no filtering
+                min_val, max_val = float(numeric_full_col.min()), float(numeric_full_col.max())
+                if min_val != max_val:
+                    step_val = max((max_val - min_val) / 100, 0.01)
+                    range_val = st.slider(
+                        f"Range for `{col}`", min_val, max_val, (min_val, max_val),
+                        step=step_val, key=f"adv_range_{i}"
+                    )
+                    # Ensure column is numeric for filtering, handling NaNs safely
+                    current_col_numeric = pd.to_numeric(current_df_for_advanced_filtering[col], errors='coerce')
+                    cond = current_col_numeric.between(range_val[0], range_val[1], inclusive='both').fillna(False)
+                else:
+                    st.warning(f"🔒 `{col}` has a constant value ({min_val}). No range to filter.")
+                    # FIX: Ensure 'True' Series has the correct index from the target DataFrame
+                    cond = pd.Series([True] * len(current_df_for_advanced_filtering), index=current_df_for_advanced_filtering.index)
+
+        elif pd.api.types.is_datetime64_any_dtype(dtype) or ("date" in col.lower() and not pd.api.types.is_numeric_dtype(dtype)):
+            # Datetime values should be extracted from the full_data_col
+            datetime_full_col = pd.to_datetime(full_data_col, errors="coerce").dropna()
+
+            if datetime_full_col.empty:
+                st.warning(f"🔒 `{col}` has no valid date/time values for filtering.")
+                # FIX: Ensure 'True' Series has the correct index from the target DataFrame
+                cond = pd.Series([True] * len(current_df_for_advanced_filtering), index=current_df_for_advanced_filtering.index)
+            else:
+                min_date, max_date = datetime_full_col.min(), datetime_full_col.max()
+                try:
+                    date_start, date_end = st.date_input(
+                        f"Date range for `{col}`", (min_date.date(), max_date.date()), key=f"adv_date_{i}"
+                    )
+                    # Convert date_input output back to datetime for filtering
+                    date_start_dt = pd.to_datetime(date_start).normalize()
+                    date_end_dt = pd.to_datetime(date_end).normalize() + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+
+                    # Ensure column is datetime for filtering, handling NaNs safely
+                    current_col_datetime = pd.to_datetime(current_df_for_advanced_filtering[col], errors='coerce')
+                    cond = current_col_datetime.between(date_start_dt, date_end_dt, inclusive='both').fillna(False)
+                except Exception as e:
+                    st.error(f"Error with date selection for `{col}`: {e}")
+                    # FIX: Ensure 'True' Series has the correct index from the target DataFrame
+                    cond = pd.Series([True] * len(current_df_for_advanced_filtering), index=current_df_for_advanced_filtering.index)
+
+        else: # Categorical
+            # Categorical values should be extracted from the full_data_col and converted to string
+            unique_values = full_data_col.astype(str).dropna().unique().tolist()
+            unique_values.sort()
+
+            if not unique_values:
+                st.warning(f"🔒 `{col}` has no valid categorical values for filtering.")
+                # FIX: Ensure 'True' Series has the correct index from the target DataFrame
+                cond = pd.Series([True] * len(current_df_for_advanced_filtering), index=current_df_for_advanced_filtering.index)
+            else:
+                selected = st.multiselect(f"Select values for `{col}`", unique_values, key=f"adv_cat_{i}")
+                if selected:
+                    # Ensure column is string for filtering, handling NaNs safely
+                    cond = current_df_for_advanced_filtering[col].astype(str).isin(selected)
+                else:
+                    # FIX: Ensure 'True' Series has the correct index from the target DataFrame
+                    cond = pd.Series([True] * len(current_df_for_advanced_filtering), index=current_df_for_advanced_filtering.index) # no filtering
 
         conditions.append(cond)
 
+    st.markdown("---")
+
     if conditions:
-        combined = conditions[0]
-        for c in conditions[1:]:
+        # FIX: Align all conditions to the index of current_df_for_advanced_filtering
+        # This is CRUCIAL if rows have been dropped in previous cleaning/filtering steps
+        aligned_conditions = [c.reindex(current_df_for_advanced_filtering.index, fill_value=False) for c in conditions]
+
+        combined = aligned_conditions[0]
+        for c in aligned_conditions[1:]:
             combined = combined & c if logic == "AND" else combined | c
 
-        filtered_df = df[combined]
-        st.success(f"✅ {len(filtered_df)} rows matched your filters.")
+        filtered_df = current_df_for_advanced_filtering[combined]
+        st.success(f"✅ {len(filtered_df)} rows matched your filters out of {len(current_df_for_advanced_filtering)}.")
         st.dataframe(filtered_df, use_container_width=True)
 
         st.markdown("---")
-        col1, col2, col3 = st.columns(3)
+        col1_adv, col2_adv, col3_adv = st.columns(3)
 
-        with col1:
-            if st.button("✅ Apply Filters"):
+        with col1_adv:
+            if st.button("✅ Apply Filters", key="apply_advanced_filters_btn"):
+                st.session_state.df_backup = st.session_state.df_clean.copy() # Backup before applying
                 st.session_state.df_clean = filtered_df.copy()
-                st.success("✅ Applied to Export tab and all views.")
+                # df_full should NOT change here, as it's the original for range limits
+                st.success("✅ Filters applied to cleaned dataset (affects Export tab and all views).")
+                st.toast("Advanced filter applied!", icon="✅")
+                st.rerun()
 
-        with col2:
-            if st.button("↩️ Undo Last Filter", key="undo_advanced_filter"):
-                if "df_clean" in st.session_state and "df_original" in st.session_state:
-                    df = st.session_state.df_clean.copy()
-                    st.success("🔁 Reverted to last cleaned dataset.")
+        with col2_adv:
+            if st.button("↩️ Undo Last Filter", key="undo_advanced_filter_btn"):
+                if st.session_state.df_backup is not None and not st.session_state.df_backup.empty:
+                    st.session_state.df_clean = st.session_state.df_backup.copy()
+                    st.success("🔁 Reverted to previous dataset (before this advanced filter).")
+                    st.toast("Undo successful!", icon="↩️")
+                    st.rerun()
                 else:
-                    st.warning("⚠️ Nothing to undo.")
+                    st.warning("⚠️ No backup available to undo.")
 
-        with col3:
-            if st.button("🔄 Reset to Original Data", key="reset_advanced_filter"):
-                if "df_original" in st.session_state:
-                    df = st.session_state.df_original.copy()
-                    st.session_state.df_clean = df.copy()
+        with col3_adv:
+            if st.button("🔄 Reset to Original Data", key="reset_advanced_filter_btn"):
+                if st.session_state.df_original is not None and not st.session_state.df_original.empty:
+                    st.session_state.df_clean = st.session_state.df_original.copy()
+                    st.session_state.df_full = st.session_state.df_original.copy() # Ensure df_full is also reset
                     st.success("✅ Reset to original uploaded dataset.")
+                    st.toast("Dataset reset!", icon="🔄")
+                    st.rerun()
                 else:
                     st.warning("⚠️ No original dataset available.")
+    else:
+        st.info("Please add at least one filter condition to begin.")
 
 
 # --- Export Tab ---
