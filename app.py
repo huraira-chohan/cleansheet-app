@@ -305,8 +305,6 @@ with tabs[4]:
         after = len(df)
         st.success(f"✅ Removed {before - after} duplicate rows")
         st.session_state.df_clean = df
-# --- Advanced Filter Tab ---
-tab6 = st.tabs(["🧠 Advanced Filter"])[0]
 
 with tabs[5]:
     st.session_state.active_tab = tab_labels[5]
