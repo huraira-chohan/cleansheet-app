@@ -184,16 +184,49 @@ with tab3:
 with tab4:
     st.subheader("🔍 Filter Rows (temporary view only)")
     col_to_filter = st.selectbox("Choose column to filter", df.columns.tolist())
-    unique_vals = df[col_to_filter].dropna().unique().tolist()
-    selected_vals = st.multiselect(f"Show rows where `{col_to_filter}` is:", unique_vals)
 
-    if selected_vals:
-        filtered_df = df[df[col_to_filter].isin(selected_vals)]
+    if pd.api.types.is_numeric_dtype(df[col_to_filter]):
+        st.write(f"📏 Numeric Range Filter for `{col_to_filter}`")
+        min_val = float(df[col_to_filter].min())
+        max_val = float(df[col_to_filter].max())
+        start, end = st.slider(
+            "Select value range",
+            min_value=min_val,
+            max_value=max_val,
+            value=(min_val, max_val),
+            step=(max_val - min_val) / 100
+        )
+        filtered_df = df[df[col_to_filter].between(start, end)]
         st.dataframe(filtered_df, use_container_width=True)
-        st.info("Showing filtered view. Your original dataset is not affected.")
+        st.info(f"Showing rows where `{col_to_filter}` is between {start} and {end}.")
+
+    elif pd.api.types.is_datetime64_any_dtype(df[col_to_filter]):
+        st.write(f"🗓 Date Range Filter for `{col_to_filter}`")
+        df[col_to_filter] = pd.to_datetime(df[col_to_filter], errors='coerce')
+        min_date = df[col_to_filter].min()
+        max_date = df[col_to_filter].max()
+        date_start, date_end = st.date_input(
+            "Select date range",
+            value=(min_date, max_date),
+            min_value=min_date,
+            max_value=max_date
+        )
+        filtered_df = df[df[col_to_filter].between(date_start, date_end)]
+        st.dataframe(filtered_df, use_container_width=True)
+        st.info(f"Showing rows where `{col_to_filter}` is between {date_start} and {date_end}.")
+
     else:
-        st.dataframe(df, use_container_width=True)
-        st.caption("No filter applied — showing full dataset.")
+        st.write(f"🔠 Categorical Filter for `{col_to_filter}`")
+        unique_vals = df[col_to_filter].dropna().unique().tolist()
+        selected_vals = st.multiselect(f"Show rows where `{col_to_filter}` is:", unique_vals)
+        if selected_vals:
+            filtered_df = df[df[col_to_filter].isin(selected_vals)]
+            st.dataframe(filtered_df, use_container_width=True)
+            st.info("Filtered by selected values.")
+        else:
+            st.dataframe(df, use_container_width=True)
+            st.caption("No filter applied — showing full dataset.")
+
 
 
 # --- Sort Tab ---
