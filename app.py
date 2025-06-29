@@ -5,7 +5,6 @@ import re
 from io import StringIO
 import requests
 from io import StringIO
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -136,6 +135,79 @@ with tabs[0]:
 
 # --- Clean Tab ---
 with tabs[1]:
+    with tabs[1]:
+    st.session_state.active_tab = tab_labels[1]
+    st.subheader("🧹 Clean Column Values")
+
+    df = st.session_state.get("df_clean", pd.DataFrame()).copy()
+    if df.empty:
+        st.warning("⚠️ No dataset loaded.")
+        st.stop()
+
+    col = st.selectbox("Select a column to clean", df.columns)
+
+    cleaning_action = st.selectbox(
+        "Choose cleaning operation",
+        ["-- Select --", "Remove NaNs", "Fill NaNs with 0", "To lowercase", "To title case", "Auto Clean"]
+    )
+
+    preview_col1, preview_col2 = st.columns(2)
+    preview_col1.markdown("**Before Cleaning**")
+    preview_col1.write(df[[col]].head(10))
+
+    if cleaning_action == "Remove NaNs":
+        df = df[df[col].notna()]
+        st.success("✅ NaN rows removed.")
+
+    elif cleaning_action == "Fill NaNs with 0":
+        df[col] = df[col].fillna(0)
+        st.success("✅ NaNs filled with 0.")
+
+    elif cleaning_action == "To lowercase":
+        df[col] = df[col].astype(str).str.lower()
+        st.success("✅ Converted to lowercase.")
+
+    elif cleaning_action == "To title case":
+        df[col] = df[col].astype(str).str.title()
+        st.success("✅ Converted to title case.")
+
+    elif cleaning_action == "Auto Clean":
+        import dateutil.parser
+        def auto_clean_column(series):
+            try:
+                numeric = pd.to_numeric(series, errors='coerce')
+                if numeric.notna().sum() >= 0.8 * len(series):
+                    return numeric
+            except: pass
+
+            try:
+                dates = pd.to_datetime(series, errors='coerce')
+                if dates.notna().sum() >= 0.8 * len(series):
+                    return dates
+            except: pass
+
+            cat = series.astype(str).str.strip().str.lower().replace({
+                "m": "Male", "f": "Female",
+                "male": "Male", "female": "Female",
+                "yes": "Yes", "y": "Yes", "1": "Yes",
+                "no": "No", "n": "No", "0": "No",
+                "forty": "40", "thirty": "30", "twenty": "20"
+            })
+            return cat
+
+        df[col] = auto_clean_column(df[col])
+        st.success("✅ Auto-cleaning applied to column.")
+
+    # Show cleaned preview
+    preview_col2.markdown("**After Cleaning**")
+    preview_col2.write(df[[col]].head(10))
+
+    # Update the cleaned version in session
+    st.session_state.df_clean = df.copy()
+
+    st.markdown("---")
+    st.dataframe(df, use_container_width=True)
+
     st.subheader("🔎 Clean Columns")
     st.session_state.active_tab = tab_labels[1]
     columns = df.columns.tolist()
