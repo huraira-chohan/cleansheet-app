@@ -212,7 +212,7 @@ with tabs[1]:
     st.session_state.active_tab = tab_labels[1]
     columns = df.columns.tolist()
 st.session_state.active_tab = tab_labels[1]
-    st.subheader("🧹 Clean Column Values")
+st.subheader("🧹 Clean Column Values")
 
     df = st.session_state.get("df_clean", pd.DataFrame()).copy()
 
