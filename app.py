@@ -6,40 +6,53 @@ from io import StringIO
 import requests
 from io import StringIO
 
+import streamlit as st
+import pandas as pd
+import numpy as np
+import re
+from io import StringIO
+import requests
+
 st.set_page_config(page_title="CleanSheet - All-in-One CSV Cleaner", layout="wide")
 st.title("🧹 CleanSheet")
 st.caption("An all-in-one, no-code data cleaning assistant")
+st.sidebar.markdown("### 📦 Load Dataset")
 
-# Reset Button and Row Count Display
-if "df_original" in st.session_state and st.button("🔄 Reset to Original Dataset"):
-    st.session_state.df_clean = st.session_state.df_original.copy()
-    st.success("🔁 Dataset reset to original")
+# File uploader + sample loader
+load_sample = st.sidebar.button("📂 Load Sample Titanic Dataset")
+uploaded_file = st.sidebar.file_uploader("📤 Or Upload your CSV file", type=["csv"])
 
-if "df_clean" in st.session_state:
-    st.caption(f"📄 Working on {st.session_state.df_clean.shape[0]:,} rows and {st.session_state.df_clean.shape[1]} columns.")
-
+# Load dataset into session state
+if "df_clean" not in st.session_state:
+    st.session_state.df_clean = None
 
 if load_sample:
     titanic_url = "https://raw.githubusercontent.com/datasciencedojo/datasets/master/titanic.csv"
-    response = requests.get(titanic_url)
-    df = pd.read_csv(StringIO(response.text))
-    st.session_state.df_original = df.copy()
-    st.session_state.df_clean = df.copy()
-    st.success("✅ Sample Titanic dataset loaded successfully!")
+    try:
+        response = requests.get(titanic_url)
+        df = pd.read_csv(StringIO(response.text))
+        st.session_state.df_clean = df.copy()
+        st.success("✅ Sample Titanic dataset loaded successfully!")
+    except Exception as e:
+        st.error(f"❌ Failed to load sample data: {e}")
 
-elif uploaded_file:
-    df = pd.read_csv(uploaded_file)
-    df.replace(NULL_VALUES, np.nan, inplace=True)
-    st.session_state.df_original = df.copy()
-    st.session_state.df_clean = df.copy()
-    st.success("✅ Your dataset was uploaded successfully!")
+elif uploaded_file is not None:
+    try:
+        df = pd.read_csv(uploaded_file)
+        df.replace(["", "na", "n/a", "null", "none", "-", "--", "NaN", "NAN", "?", "unknown"], np.nan, inplace=True)
+        st.session_state.df_clean = df.copy()
+        st.success("✅ Your dataset was uploaded successfully!")
+    except Exception as e:
+        st.error(f"❌ Failed to read uploaded file: {e}")
 
-# Retrieve working version
-if "df_clean" in st.session_state:
-    df = st.session_state.df_clean
-else:
-    st.info("📎 Please upload a CSV file to get started.")
+# Ensure data is available
+if st.session_state.df_clean is None:
+    st.info("📎 Please upload a CSV file or load the sample dataset to get started.")
     st.stop()
+
+# Use the session state dataframe going forward
+df = st.session_state.df_clean
+
 
 
 # --- Helpers ---
