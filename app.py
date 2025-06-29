@@ -138,6 +138,19 @@ with tab3:
             st.success(f"✅ Created merged column `{merge_name}`")
             st.session_state.df_clean = df
 
+    st.write("### 🔤 Split Alphanumeric Column")
+    split_col = st.selectbox("Select alphanumeric column to split", df.columns.tolist(), key="split_col")
+    new_alpha = st.text_input("New column for alphabets", key="alpha_part")
+    new_num = st.text_input("New column for numbers", key="num_part")
+
+    if st.button("Split Alphanumeric"):
+        if new_alpha and new_num:
+            df[new_alpha] = df[split_col].astype(str).apply(lambda x: ''.join(re.findall(r'[A-Za-z]+', x)))
+            df[new_num] = df[split_col].astype(str).apply(lambda x: ''.join(re.findall(r'\d+', x)))
+            st.success(f"✅ Split `{split_col}` into `{new_alpha}` and `{new_num}`")
+            st.session_state.df_clean = df
+
+
 # --- Filter Tab ---
 with tab4:
     st.subheader("🔍 Filter Rows")
