@@ -184,7 +184,16 @@ with tab5:
 # --- Export Tab ---
 with tab6:
     st.subheader("⬇️ Export Cleaned CSV")
-    st.dataframe(df.head(), use_container_width=True)
+
+    export_view = st.radio("How much data to preview?", ["Top 5", "Top 50", "All"], horizontal=True, key="export_view")
+    if export_view == "Top 5":
+        st.dataframe(df.head(), use_container_width=True)
+    elif export_view == "Top 50":
+        st.dataframe(df.head(50), use_container_width=True)
+    else:
+        st.dataframe(df, use_container_width=True)
+
     csv = df.to_csv(index=False).encode("utf-8")
     st.download_button("📥 Download Cleaned CSV", csv, "cleaned_data.csv", "text/csv")
+
 
