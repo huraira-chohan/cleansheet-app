@@ -9,22 +9,38 @@ from io import StringIO
 st.set_page_config(page_title="CleanSheet - All-in-One CSV Cleaner", layout="wide")
 st.title("🧹 CleanSheet")
 st.caption("An all-in-one, no-code data cleaning assistant")
-st.sidebar.markdown("### 📦 Load Dataset")
 
-load_sample = st.sidebar.button("Load Sample Titanic Dataset")
-uploaded_file = st.sidebar.file_uploader("Upload your CSV file", type=["csv"])
+# Reset Button and Row Count Display
+if "df_original" in st.session_state and st.button("🔄 Reset to Original Dataset"):
+    st.session_state.df_clean = st.session_state.df_original.copy()
+    st.success("🔁 Dataset reset to original")
+
+if "df_clean" in st.session_state:
+    st.caption(f"📄 Working on {st.session_state.df_clean.shape[0]:,} rows and {st.session_state.df_clean.shape[1]} columns.")
+
 
 if load_sample:
     titanic_url = "https://raw.githubusercontent.com/datasciencedojo/datasets/master/titanic.csv"
     response = requests.get(titanic_url)
     df = pd.read_csv(StringIO(response.text))
+    st.session_state.df_original = df.copy()
     st.session_state.df_clean = df.copy()
     st.success("✅ Sample Titanic dataset loaded successfully!")
 
 elif uploaded_file:
     df = pd.read_csv(uploaded_file)
+    df.replace(NULL_VALUES, np.nan, inplace=True)
+    st.session_state.df_original = df.copy()
     st.session_state.df_clean = df.copy()
     st.success("✅ Your dataset was uploaded successfully!")
+
+# Retrieve working version
+if "df_clean" in st.session_state:
+    df = st.session_state.df_clean
+else:
+    st.info("📎 Please upload a CSV file to get started.")
+    st.stop()
+
 
 # --- Helpers ---
 NULL_VALUES = ["", "na", "n/a", "null", "none", "-", "--", "NaN", "NAN", "?", "unknown"]
@@ -166,6 +182,7 @@ with tab4:
 # --- Sort Tab ---
 with tab5:
     st.subheader("📈 Sort Data")
+    st.info("ℹ️ Use the Reset button at the top to undo any sort or filter applied.")
     sort_col = st.selectbox("Column to sort by", df.columns.tolist())
     ascending = st.checkbox("Sort ascending", value=True)
     if st.button("Sort"):
