@@ -363,7 +363,7 @@ with tab6:
                 st.success("✅ Applied to Export tab and all views.")
 
         with col2:
-            if st.button("↩️ Undo Last Filter", key="undo_advanced_filter")::
+            if st.button("↩️ Undo Last Filter", key="undo_advanced_filter"):
                 if "df_clean" in st.session_state and "df_original" in st.session_state:
                     df = st.session_state.df_clean.copy()
                     st.success("🔁 Reverted to last cleaned dataset.")
