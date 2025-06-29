@@ -196,14 +196,19 @@ with tabs[3]:
     df = st.session_state.get("df_clean", pd.DataFrame()).copy()
     st.session_state.df_temp = df.copy()  # Save preview before applying
 
+    # Keep full dataset for slider limits
+    if "df_full" not in st.session_state:
+        st.session_state.df_full = df.copy()
+
     col_to_filter = st.selectbox("Choose column to filter", df.columns.tolist())
     filtered_df = df.copy()
 
     # Numeric filtering
     if pd.api.types.is_numeric_dtype(df[col_to_filter]):
         st.write(f"📏 Numeric Range Filter for `{col_to_filter}`")
-        min_val = float(df[col_to_filter].min())
-        max_val = float(df[col_to_filter].max())
+        full_col = st.session_state.df_full[col_to_filter]
+        min_val = float(full_col.min())
+        max_val = float(full_col.max())
 
         if min_val == max_val:
             st.warning(f"⚠️ All values in `{col_to_filter}` are the same: {min_val}")
@@ -223,8 +228,10 @@ with tabs[3]:
     elif pd.api.types.is_datetime64_any_dtype(df[col_to_filter]) or "date" in col_to_filter.lower():
         st.write(f"🗓 Date Range Filter for `{col_to_filter}`")
         df[col_to_filter] = pd.to_datetime(df[col_to_filter], errors='coerce')
-        min_date = df[col_to_filter].min()
-        max_date = df[col_to_filter].max()
+        st.session_state.df_full[col_to_filter] = pd.to_datetime(st.session_state.df_full[col_to_filter], errors='coerce')
+        full_col = st.session_state.df_full[col_to_filter]
+        min_date = full_col.min()
+        max_date = full_col.max()
 
         if pd.isnull(min_date) or pd.isnull(max_date):
             st.warning(f"⚠️ Could not convert `{col_to_filter}` to datetime.")
@@ -241,7 +248,7 @@ with tabs[3]:
     # Categorical filtering
     else:
         st.write(f"🔠 Categorical Filter for `{col_to_filter}`")
-        unique_vals = df[col_to_filter].dropna().unique().tolist()
+        unique_vals = st.session_state.df_full[col_to_filter].dropna().unique().tolist()
 
         if not unique_vals:
             st.warning("⚠️ No valid values to filter.")
@@ -289,6 +296,7 @@ with tabs[3]:
                 st.success("✅ Reset to original uploaded dataset.")
             else:
                 st.warning("⚠️ No original dataset available.")
+
 
 
 
