@@ -355,7 +355,12 @@ st.write("🧪 Current Cleaned Columns:", st.session_state.df_clean.columns.toli
 
 elif st.session_state.active_tab == "⬇️ Export":
     st.subheader("⬇️ Export Cleaned CSV")
+
     export_df = st.session_state.get("df_clean", pd.DataFrame())
+    
+    # ✅ SHOW CURRENT CLEANED COLUMNS
+    st.write("🧪 Current Cleaned Columns:", export_df.columns.tolist())
+    
     st.dataframe(export_df, use_container_width=True)
     csv = export_df.to_csv(index=False).encode("utf-8")
     st.download_button(
