@@ -170,11 +170,11 @@ elif st.session_state.active_tab == "🧹 Clean":
     preview_col2.write(cleaned[[col]].head(10))
 
     if st.button("✅ Apply Cleaning"):
-    updated_df = st.session_state.df_clean.copy()
-    updated_df.update(cleaned)
-    st.session_state.df_clean = updated_df
-    st.success("✅ Cleaning applied and saved to session.")
-    st.rerun()
+     updated_df = st.session_state.df_clean.copy()
+     updated_df.update(cleaned)
+     st.session_state.df_clean = updated_df
+     st.success("✅ Cleaning applied and saved to session.")
+     st.rerun()
 
 
 
