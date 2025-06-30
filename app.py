@@ -105,7 +105,7 @@ if st.session_state.active_tab == "📊 Preview":
 # --- Clean Tab ---
 elif st.session_state.active_tab == "🧹 Clean":
     st.subheader("🧹 Clean Your Dataset")
-    df_clean_tab = st.session_state.get("df_clean", pd.DataFrame()).copy()
+    df_clean_tab = st.session_state.df_clean
     if df_clean_tab.empty:
         st.warning("⚠️ No dataset loaded.")
         st.stop()
