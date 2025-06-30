@@ -98,12 +98,12 @@ def auto_clean_column(series):
 
 # --- Tabs for navigation ---
 tab_labels = ["📊 Preview", "🧹 Clean", "🧮 Columns", "🔍 Filter", "📈 Sort", "🧠 Advanced Filter", "⬇️ Export"]
-tab_index = tab_labels.index(st.session_state.active_tab)
 tabs = st.tabs(tab_labels)
+selected_index = next(i for i, tab in enumerate(tab_labels) if tab == st.session_state.active_tab)
+tabs[selected_index].select()
 
 # --- Preview Tab ---
 with tabs[0]:
-    st.session_state.active_tab = tab_labels[0]
     st.subheader("🔎 Dataset Preview")
     view_opt = st.radio("How much data to show?", ["Top 5", "Top 50", "All"], horizontal=True)
     if view_opt == "Top 5":
@@ -118,7 +118,6 @@ with tabs[0]:
 
 # --- Clean Tab ---
 with tabs[1]:
-    st.session_state.active_tab = tab_labels[1]
     st.subheader("🧹 Clean Column Values")
 
     df_clean_tab = st.session_state.get("df_clean", pd.DataFrame()).copy()
@@ -198,7 +197,6 @@ with tabs[1]:
 
 # --- Column Tab ---
 with tabs[2]:
-    st.session_state.active_tab = tab_labels[2]
     st.subheader("🧮 Manage Columns")
 
     col1, col2 = st.columns(2)
@@ -249,7 +247,6 @@ with tabs[2]:
 
 # --- Filter Tab ---
 with tabs[3]:
-    st.session_state.active_tab = tab_labels[3]
     st.subheader("🔍 Filter Rows (temporary view only)")
 
     df_to_filter = st.session_state.get("df_clean", pd.DataFrame()).copy()
@@ -328,7 +325,6 @@ with tabs[3]:
 
 # --- Sort Tab ---
 with tabs[4]:
-    st.session_state.active_tab = tab_labels[4]
     st.subheader("📈 Sort Data")
     st.info("ℹ️ Sorting is applied to the current state of the dataset.")
     sort_col = st.selectbox("Column to sort by", df.columns.tolist())
@@ -351,7 +347,6 @@ with tabs[4]:
 
 # --- Advanced Filter Tab (MODIFIED FOR RESET BUTTON) ---
 with tabs[5]:
-    st.session_state.active_tab = tab_labels[5]
     st.subheader("🧠 Advanced Multi-Column Filtering")
     st.info("This filter is applied to the current dataset and will modify it for export.")
 
@@ -429,7 +424,6 @@ with tabs[5]:
 
 # --- Export Tab ---
 with tabs[6]:
-    st.session_state.active_tab = tab_labels[6]
     st.subheader("⬇️ Export Cleaned CSV")
 
     export_df = st.session_state.get("df_clean", pd.DataFrame())
