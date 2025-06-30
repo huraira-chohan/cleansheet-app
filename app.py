@@ -51,7 +51,7 @@ if st.session_state.df_clean is None:
     st.info("📎 Please upload a CSV file or load the sample dataset to get started.")
     st.stop()
 
-df = st.session_state.df_clean
+df = st.session_state.df_clean.copy()
 
 # --- Helper Functions ---
 def clean_text(x):
@@ -170,10 +170,12 @@ elif st.session_state.active_tab == "🧹 Clean":
     preview_col2.write(cleaned[[col]].head(10))
 
     if st.button("✅ Apply Cleaning"):
-    st.session_state.df_clean = st.session_state.df_clean.copy()
-    st.session_state.df_clean.update(cleaned)
+    updated_df = st.session_state.df_clean.copy()
+    updated_df.update(cleaned)
+    st.session_state.df_clean = updated_df
     st.success("✅ Cleaning applied and saved to session.")
     st.rerun()
+
 
 
     st.markdown("---")
