@@ -96,11 +96,17 @@ def auto_clean_column(series):
 
     return series
 
-# --- Tabs for navigation ---
 tab_labels = ["📊 Preview", "🧹 Clean", "🧮 Columns", "🔍 Filter", "📈 Sort", "🧠 Advanced Filter", "⬇️ Export"]
+
+# Display tabs and get currently selected tab index
 tabs = st.tabs(tab_labels)
-selected_index = next(i for i, tab in enumerate(tab_labels) if tab == st.session_state.active_tab)
-tabs[selected_index].select()
+
+# Determine which tab is active and store it only once
+for i, tab in enumerate(tabs):
+    with tab:
+        if st.session_state.get("active_tab") != tab_labels[i]:
+            st.session_state.active_tab = tab_labels[i]
+        break  # only need to do this for the currently selected tab
 
 # --- Preview Tab ---
 with tabs[0]:
