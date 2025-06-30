@@ -104,42 +104,124 @@ if st.session_state.active_tab == "📊 Preview":
 
 # --- Clean Tab ---
 elif st.session_state.active_tab == "🧹 Clean":
-    st.subheader("🧹 Clean Column Values")
+    st.subheader("🧹 Clean Your Dataset")
     df_clean_tab = st.session_state.get("df_clean", pd.DataFrame()).copy()
     if df_clean_tab.empty:
         st.warning("⚠️ No dataset loaded.")
         st.stop()
-    col = st.selectbox("Select a column to clean", df_clean_tab.columns)
-    cleaning_action = st.selectbox(
-        "Choose cleaning operation",
-        ["-- Select --", "Remove NaNs", "Fill NaNs with 0", "To lowercase", "To title case", "Auto Clean"]
+
+    st.markdown("### 🔧 Column-wise Cleaning")
+    col = st.selectbox("Select column to clean", df_clean_tab.columns)
+    actions = st.multiselect(
+        "Select cleaning steps (applied in order)",
+        [
+            "Remove NaNs", "Fill NaNs with 0", "Fill NaNs with Mean", "Fill NaNs with Median", "Custom Fill",
+            "To Lowercase", "To Title Case", "Convert to Numeric", "Auto Clean", "Strip Whitespace",
+            "Replace Values", "Remove Duplicates", "Regex Replace", "Remove Outliers"
+        ],
     )
+
+    custom_fill_value = st.text_input("Custom value for NaNs (if selected)", key="custom_fill_val")
+    replace_dict = {}
+    if "Replace Values" in actions:
+        with st.expander("🔄 Replace Values"):
+            old_vals = st.text_input("Old values (comma-separated)", key="old_vals")
+            new_val = st.text_input("New value to replace them with", key="new_val")
+            if old_vals:
+                replace_dict = {v.strip(): new_val for v in old_vals.split(",")}
+
+    regex_pattern = st.text_input("Regex pattern to replace (optional)", key="regex_pattern") if "Regex Replace" in actions else ""
+    regex_replacement = st.text_input("Regex replacement", key="regex_replacement") if "Regex Replace" in actions else ""
+
     preview_col1, preview_col2 = st.columns(2)
-    preview_col1.markdown("**Before Cleaning**")
-    preview_col1.write(st.session_state.df_clean[[col]].head(10))
-    cleaned_df = df_clean_tab.copy()
-    if cleaning_action == "Remove NaNs":
-        cleaned_df = df_clean_tab[df_clean_tab[col].notna()]
-        st.success("✅ NaN rows removed.")
-    elif cleaning_action == "Fill NaNs with 0":
-        cleaned_df[col] = df_clean_tab[col].fillna(0)
-        st.success("✅ NaNs filled with 0.")
-    elif cleaning_action == "To lowercase":
-        cleaned_df[col] = df_clean_tab[col].astype(str).str.lower()
-        st.success("✅ Converted to lowercase.")
-    elif cleaning_action == "To title case":
-        cleaned_df[col] = df_clean_tab[col].astype(str).str.title()
-        st.success("✅ Converted to title case.")
-    elif cleaning_action == "Auto Clean":
-        cleaned_df[col] = auto_clean_column(df_clean_tab[col])
-        st.success("✅ Auto-cleaning applied to column.")
-    preview_col2.markdown("**After Cleaning**")
-    preview_col2.write(cleaned_df[[col]].head(10))
-    if st.button("Apply Cleaning to Dataset"):
-        st.session_state.df_clean = cleaned_df.copy()
+    preview_col1.write("**Before Cleaning**")
+    preview_col1.write(df_clean_tab[[col]].head(10))
+
+    cleaned = df_clean_tab.copy()
+
+    for action in actions:
+        if action == "Remove NaNs":
+            cleaned = cleaned[cleaned[col].notna()]
+        elif action == "Fill NaNs with 0":
+            cleaned[col] = cleaned[col].fillna(0)
+        elif action == "Fill NaNs with Mean" and pd.api.types.is_numeric_dtype(cleaned[col]):
+            cleaned[col] = cleaned[col].fillna(cleaned[col].mean())
+        elif action == "Fill NaNs with Median" and pd.api.types.is_numeric_dtype(cleaned[col]):
+            cleaned[col] = cleaned[col].fillna(cleaned[col].median())
+        elif action == "Custom Fill":
+            cleaned[col] = cleaned[col].fillna(custom_fill_value)
+        elif action == "To Lowercase":
+            cleaned[col] = cleaned[col].astype(str).str.lower()
+        elif action == "To Title Case":
+            cleaned[col] = cleaned[col].astype(str).str.title()
+        elif action == "Convert to Numeric":
+            cleaned[col] = cleaned[col].apply(convert_to_numeric)
+        elif action == "Strip Whitespace":
+            cleaned[col] = cleaned[col].astype(str).str.strip()
+        elif action == "Auto Clean":
+            cleaned[col] = auto_clean_column(cleaned[col])
+        elif action == "Replace Values" and replace_dict:
+            cleaned[col] = cleaned[col].replace(replace_dict)
+        elif action == "Remove Duplicates":
+            cleaned = cleaned.drop_duplicates(subset=[col])
+        elif action == "Regex Replace" and regex_pattern:
+            cleaned[col] = cleaned[col].astype(str).str.replace(regex_pattern, regex_replacement, regex=True)
+        elif action == "Remove Outliers" and pd.api.types.is_numeric_dtype(cleaned[col]):
+            mean_val = cleaned[col].mean()
+            std_val = cleaned[col].std()
+            cleaned = cleaned[(cleaned[col] - mean_val).abs() <= 3 * std_val]
+
+    preview_col2.write("**After Cleaning**")
+    preview_col2.write(cleaned[[col]].head(10))
+
+    if st.button("✅ Apply Cleaning"):
+        st.session_state.df_clean = cleaned.copy()
+        st.success("✅ Cleaning applied.")
         st.rerun()
+
+    st.markdown("---")
+    st.subheader("🧹 Bulk Column Cleaning")
+    for c in df_clean_tab.columns:
+        with st.expander(f"Column: `{c}`"):
+            clean_opt = st.selectbox(
+                f"Cleaning for `{c}`",
+                ["None", "Text Normalize", "Convert to Numeric"],
+                key=f"clean_{c}"
+            )
+            fill_opt = st.selectbox(
+                f"NaN Handling for `{c}`",
+                ["None", "Drop Rows", "Fill with Mean", "Fill with Median", "Fill with Mode"],
+                key=f"fill_{c}"
+            )
+            regex_pat = st.text_input("Regex pattern (optional)", key=f"regex_pat_{c}")
+            regex_repl = st.text_input("Regex replacement", key=f"regex_repl_{c}")
+            apply_bulk = st.button(f"Apply to `{c}`", key=f"apply_{c}")
+            if apply_bulk:
+                bulk_df = st.session_state.df_clean.copy()
+                if clean_opt == "Text Normalize":
+                    bulk_df[c] = bulk_df[c].apply(clean_text)
+                elif clean_opt == "Convert to Numeric":
+                    bulk_df[c] = bulk_df[c].apply(convert_to_numeric)
+                if regex_pat:
+                    bulk_df[c] = bulk_df[c].astype(str).str.replace(regex_pat, regex_repl, regex=True)
+
+                if fill_opt == "Drop Rows":
+                    bulk_df = bulk_df[bulk_df[c].notna()]
+                elif fill_opt == "Fill with Mean" and pd.api.types.is_numeric_dtype(bulk_df[c]):
+                    bulk_df[c] = bulk_df[c].fillna(bulk_df[c].mean())
+                elif fill_opt == "Fill with Median" and pd.api.types.is_numeric_dtype(bulk_df[c]):
+                    bulk_df[c] = bulk_df[c].fillna(bulk_df[c].median())
+                elif fill_opt == "Fill with Mode":
+                    bulk_df[c] = bulk_df[c].fillna(bulk_df[c].mode().iloc[0])
+
+                st.session_state.df_clean = bulk_df.copy()
+                st.success(f"✅ Applied cleaning to `{c}`")
+                st.rerun()
+
+    st.markdown("---")
     if st.button("🔄 Reset Clean Tab"):
         st.session_state.df_clean = st.session_state.df_original.copy()
+        st.success("✅ Dataset reset to original.")
         st.rerun()
 
 # --- Columns Tab ---
