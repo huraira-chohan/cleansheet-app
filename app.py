@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -9,6 +8,10 @@ import dateutil.parser
 
 if "active_tab" not in st.session_state:
     st.session_state.active_tab = "📊 Preview"
+
+# ADDED: Initialize the key for the advanced filter reset functionality.
+if "adv_filter_reset_key" not in st.session_state:
+    st.session_state.adv_filter_reset_key = 0
 
 st.set_page_config(page_title="CleanSheet - All-in-One CSV Cleaner", layout="wide")
 st.title("🧹 CleanSheet")
@@ -118,12 +121,12 @@ with tabs[1]:
     st.session_state.active_tab = tab_labels[1]
     st.subheader("🧹 Clean Column Values")
 
-    df = st.session_state.get("df_clean", pd.DataFrame()).copy()
-    if df.empty:
+    df_clean_tab = st.session_state.get("df_clean", pd.DataFrame()).copy()
+    if df_clean_tab.empty:
         st.warning("⚠️ No dataset loaded.")
         st.stop()
 
-    col = st.selectbox("Select a column to clean", df.columns)
+    col = st.selectbox("Select a column to clean", df_clean_tab.columns)
     cleaning_action = st.selectbox(
         "Choose cleaning operation",
         ["-- Select --", "Remove NaNs", "Fill NaNs with 0", "To lowercase", "To title case", "Auto Clean"]
@@ -133,22 +136,22 @@ with tabs[1]:
     preview_col1.markdown("**Before Cleaning**")
     preview_col1.write(st.session_state.df_clean[[col]].head(10))
 
-    cleaned_df = df.copy() # Work on a copy for preview
+    cleaned_df = df_clean_tab.copy() # Work on a copy for preview
 
     if cleaning_action == "Remove NaNs":
-        cleaned_df = df[df[col].notna()]
+        cleaned_df = df_clean_tab[df_clean_tab[col].notna()]
         st.success("✅ NaN rows removed.")
     elif cleaning_action == "Fill NaNs with 0":
-        cleaned_df[col] = df[col].fillna(0)
+        cleaned_df[col] = df_clean_tab[col].fillna(0)
         st.success("✅ NaNs filled with 0.")
     elif cleaning_action == "To lowercase":
-        cleaned_df[col] = df[col].astype(str).str.lower()
+        cleaned_df[col] = df_clean_tab[col].astype(str).str.lower()
         st.success("✅ Converted to lowercase.")
     elif cleaning_action == "To title case":
-        cleaned_df[col] = df[col].astype(str).str.title()
+        cleaned_df[col] = df_clean_tab[col].astype(str).str.title()
         st.success("✅ Converted to title case.")
     elif cleaning_action == "Auto Clean":
-        cleaned_df[col] = auto_clean_column(df[col])
+        cleaned_df[col] = auto_clean_column(df_clean_tab[col])
         st.success("✅ Auto-cleaning applied to column.")
 
     # Show cleaned preview
@@ -346,7 +349,7 @@ with tabs[4]:
         st.success(f"✅ Removed {before - after} duplicate rows")
         st.rerun()
 
-# --- Advanced Filter Tab ---
+# --- Advanced Filter Tab (MODIFIED FOR RESET BUTTON) ---
 with tabs[5]:
     st.session_state.active_tab = tab_labels[5]
     st.subheader("🧠 Advanced Multi-Column Filtering")
@@ -357,13 +360,18 @@ with tabs[5]:
         st.warning("⚠️ No dataset loaded.")
         st.stop()
 
-    num_conditions = st.number_input("How many filter conditions?", min_value=1, max_value=5, value=1)
-    logic = st.radio("Combine filters using:", ["AND", "OR"], horizontal=True)
+    # ADDED: Create a dynamic key prefix using the reset counter
+    adv_filter_key_prefix = f"adv_filter_{st.session_state.adv_filter_reset_key}"
+
+    # MODIFIED: Added keys to these widgets
+    num_conditions = st.number_input("How many filter conditions?", min_value=1, max_value=5, value=1, key=f"{adv_filter_key_prefix}_num_conditions")
+    logic = st.radio("Combine filters using:", ["AND", "OR"], horizontal=True, key=f"{adv_filter_key_prefix}_logic")
 
     conditions = []
     for i in range(int(num_conditions)):
         st.markdown(f"### ➕ Condition #{i+1}")
-        col = st.selectbox(f"Choose column", adv_df.columns, key=f"adv_col_{i}")
+        # MODIFIED: Added key prefix to all widgets in the loop
+        col = st.selectbox(f"Choose column", adv_df.columns, key=f"{adv_filter_key_prefix}_adv_col_{i}")
         dtype = adv_df[col].dtype
 
         # Numeric
@@ -373,7 +381,7 @@ with tabs[5]:
                 st.warning(f"⚠️ All values in `{col}` are the same: {min_val}")
                 cond = pd.Series([True] * len(adv_df), index=adv_df.index)
             else:
-                range_val = st.slider(f"Range for `{col}`", min_val, max_val, (min_val, max_val), key=f"adv_range_{i}")
+                range_val = st.slider(f"Range for `{col}`", min_val, max_val, (min_val, max_val), key=f"{adv_filter_key_prefix}_adv_range_{i}")
                 cond = adv_df[col].between(range_val[0], range_val[1])
 
         # Datetime
@@ -384,13 +392,13 @@ with tabs[5]:
                 st.warning(f"⚠️ Cannot parse `{col}` as datetime.")
                 cond = pd.Series([True] * len(adv_df), index=adv_df.index)
             else:
-                start_date, end_date = st.date_input(f"Date range for `{col}`", (min_date.date(), max_date.date()), key=f"adv_date_{i}")
+                start_date, end_date = st.date_input(f"Date range for `{col}`", (min_date.date(), max_date.date()), key=f"{adv_filter_key_prefix}_adv_date_{i}")
                 cond = adv_df[col].dt.date.between(start_date, end_date)
 
         # Categorical
         else:
             values = adv_df[col].dropna().unique().tolist()
-            selected = st.multiselect(f"Select values for `{col}`", values, key=f"adv_cat_{i}", default=values)
+            selected = st.multiselect(f"Select values for `{col}`", values, key=f"{adv_filter_key_prefix}_adv_cat_{i}", default=values)
             cond = adv_df[col].isin(selected) if selected else pd.Series([False] * len(adv_df), index=adv_df.index)
 
         conditions.append(cond)
@@ -405,10 +413,19 @@ with tabs[5]:
     st.dataframe(adv_filtered_df, use_container_width=True)
     st.success(f"✅ Previewing {len(adv_filtered_df)} rows that match your filters.")
 
-    if st.button("✅ Apply These Advanced Filters"):
-        st.session_state.df_clean = adv_filtered_df.copy()
-        st.success("✅ Filters applied to the dataset.")
-        st.rerun()
+    # MODIFIED: Using columns for better button layout
+    col1, col2, _ = st.columns([1.5, 1.5, 4])
+    with col1:
+        if st.button("✅ Apply These Advanced Filters"):
+            st.session_state.df_clean = adv_filtered_df.copy()
+            st.success("✅ Filters applied to the dataset.")
+            st.rerun()
+    with col2:
+        # ADDED: The Reset Conditions button and its logic
+        if st.button("🔄 Reset Conditions"):
+            st.session_state.adv_filter_reset_key += 1
+            st.rerun()
+
 
 # --- Export Tab ---
 with tabs[6]:
