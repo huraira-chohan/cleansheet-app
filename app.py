@@ -117,7 +117,7 @@ elif st.session_state.active_tab == "🧹 Clean":
         [
             "Remove NaNs", "Fill NaNs with 0", "Fill NaNs with Mean", "Fill NaNs with Median", "Custom Fill",
             "To Lowercase", "To Title Case", "Convert to Numeric", "Auto Clean", "Strip Whitespace",
-            "Replace Values", "Remove Duplicates", "Regex Replace", "Remove Outliers"
+            "Replace Values", "Remove Duplicates", "Remove Outliers"
         ],
     )
 
@@ -129,9 +129,6 @@ elif st.session_state.active_tab == "🧹 Clean":
             new_val = st.text_input("New value to replace them with", key="new_val")
             if old_vals:
                 replace_dict = {v.strip(): new_val for v in old_vals.split(",")}
-
-    regex_pattern = st.text_input("Regex pattern to replace (optional)", key="regex_pattern") if "Regex Replace" in actions else ""
-    regex_replacement = st.text_input("Regex replacement", key="regex_replacement") if "Regex Replace" in actions else ""
 
     preview_col1, preview_col2 = st.columns(2)
     preview_col1.write("**Before Cleaning**")
@@ -164,8 +161,6 @@ elif st.session_state.active_tab == "🧹 Clean":
             cleaned[col] = cleaned[col].replace(replace_dict)
         elif action == "Remove Duplicates":
             cleaned = cleaned.drop_duplicates(subset=[col])
-        elif action == "Regex Replace" and regex_pattern:
-            cleaned[col] = cleaned[col].astype(str).str.replace(regex_pattern, regex_replacement, regex=True)
         elif action == "Remove Outliers" and pd.api.types.is_numeric_dtype(cleaned[col]):
             mean_val = cleaned[col].mean()
             std_val = cleaned[col].std()
@@ -193,8 +188,6 @@ elif st.session_state.active_tab == "🧹 Clean":
                 ["None", "Drop Rows", "Fill with Mean", "Fill with Median", "Fill with Mode"],
                 key=f"fill_{c}"
             )
-            regex_pat = st.text_input("Regex pattern (optional)", key=f"regex_pat_{c}")
-            regex_repl = st.text_input("Regex replacement", key=f"regex_repl_{c}")
             apply_bulk = st.button(f"Apply to `{c}`", key=f"apply_{c}")
             if apply_bulk:
                 bulk_df = st.session_state.df_clean.copy()
@@ -202,8 +195,6 @@ elif st.session_state.active_tab == "🧹 Clean":
                     bulk_df[c] = bulk_df[c].apply(clean_text)
                 elif clean_opt == "Convert to Numeric":
                     bulk_df[c] = bulk_df[c].apply(convert_to_numeric)
-                if regex_pat:
-                    bulk_df[c] = bulk_df[c].astype(str).str.replace(regex_pat, regex_repl, regex=True)
 
                 if fill_opt == "Drop Rows":
                     bulk_df = bulk_df[bulk_df[c].notna()]
@@ -223,6 +214,7 @@ elif st.session_state.active_tab == "🧹 Clean":
         st.session_state.df_clean = st.session_state.df_original.copy()
         st.success("✅ Dataset reset to original.")
         st.rerun()
+
 
 # --- Columns Tab ---
 elif st.session_state.active_tab == "🧮 Columns":
