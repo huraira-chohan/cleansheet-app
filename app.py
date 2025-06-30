@@ -16,7 +16,7 @@ if "df_clean" not in st.session_state:
 if "df_original" not in st.session_state:
     st.session_state.df_original = None
 if "adv_filter_reset_key" not in st.session_state:
-    st.session_state.adv_filter_reset_key = 0 # ADDED: For resetting advanced filter widgets
+    st.session_state.adv_filter_reset_key = 0
 
 # --- UI Header ---
 st.title("🧹 CleanSheet")
@@ -31,24 +31,24 @@ uploaded_file = st.sidebar.file_uploader("📤 Or Upload your CSV file", type=["
 if load_sample:
     titanic_url = "https://raw.githubusercontent.com/datasciencedojo/datasets/master/titanic.csv"
     try:
-        response = requests.get(titanic_url)
         df = pd.read_csv(StringIO(response.text))
         st.session_state.df_original = df.copy()
         st.session_state.df_clean = df.copy()
-        st.session_state.adv_filter_reset_key += 1 # Reset filters on new data
+        st.session_state.adv_filter_reset_key += 1
         st.success("✅ Sample Titanic dataset loaded successfully!")
+        st.rerun()
     except Exception as e:
         st.error(f"❌ Failed to load sample data: {e}")
 
 elif uploaded_file is not None:
     try:
         df = pd.read_csv(uploaded_file)
-        # IMPROVED: Replaced inplace=True with reassignment
         df = df.replace(["", "na", "n/a", "null", "none", "-", "--", "NaN", "NAN", "?", "unknown"], np.nan)
         st.session_state.df_original = df.copy()
         st.session_state.df_clean = df.copy()
-        st.session_state.adv_filter_reset_key += 1 # Reset filters on new data
+        st.session_state.adv_filter_reset_key += 1
         st.success("✅ Your dataset was uploaded successfully!")
+        st.rerun()
     except Exception as e:
         st.error(f"❌ Failed to read uploaded file: {e}")
 
@@ -57,7 +57,7 @@ if st.session_state.df_clean is None:
     st.info("📎 Please upload a CSV file or load the sample dataset to get started.")
     st.stop()
 
-# Use the session state dataframe going forward
+# df is the WORKING copy. df_original is the STATIC copy.
 df = st.session_state.df_clean
 
 # --- Helper Functions ---
@@ -71,23 +71,16 @@ def convert_to_numeric(x):
         return np.nan
 
 def auto_clean_column(series):
-    # Try to convert to numeric
     try:
         numeric_series = series.apply(lambda x: pd.to_numeric(x, errors='coerce'))
         if numeric_series.notna().sum() >= series.notna().sum() * 0.8:
             return numeric_series
-    except:
-        pass
-
-    # Try to parse as datetime
+    except: pass
     try:
         date_series = series.apply(lambda x: pd.to_datetime(x, errors='coerce', infer_datetime_format=True))
         if date_series.notna().sum() >= series.notna().sum() * 0.8:
             return date_series
-    except:
-        pass
-
-    # Normalize categorical values (like gender, yes/no)
+    except: pass
     unique_vals = series.dropna().astype(str).str.strip().str.lower().unique()
     if len(unique_vals) <= 10:
         return series.astype(str).str.strip().str.lower().replace({
@@ -101,19 +94,25 @@ def auto_clean_column(series):
 tab_labels = ["📊 Preview", "🧹 Clean", "🧮 Columns", "🔍 Filter", "📈 Sort", "🧠 Advanced Filter", "⬇️ Export"]
 tabs = st.tabs(tab_labels)
 
-# --- Preview Tab ---
+# --- Preview Tab (MODIFIED) ---
 with tabs[0]:
-    st.subheader("🔎 Dataset Preview")
-    view_opt = st.radio("How much data to show?", ["Top 5", "Top 50", "All"], horizontal=True)
+    st.subheader("🔎 Original Dataset Preview")
+    st.info("This tab always shows the original, unmodified dataset that you first loaded.")
+    
+    df_original = st.session_state.df_original
+    
+    view_opt = st.radio("How much data to show?", ["Top 5", "Top 50", "All"], horizontal=True, key="preview_radio")
+    
     if view_opt == "Top 5":
-        st.dataframe(df.head(), use_container_width=True)
+        st.dataframe(df_original.head(), use_container_width=True)
     elif view_opt == "Top 50":
-        st.dataframe(df.head(50), use_container_width=True)
+        st.dataframe(df_original.head(50), use_container_width=True)
     else:
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(df_original, use_container_width=True)
 
-    st.write("#### ℹ️ Column Summary")
-    st.dataframe(df.describe(include='all').T.fillna("N/A"))
+    st.write("#### ℹ️ Column Summary (Original Data)")
+    st.dataframe(df_original.describe(include='all').T.fillna("N/A"))
+
 
 # --- Clean Tab ---
 with tabs[1]:
@@ -125,8 +124,8 @@ with tabs[1]:
     )
 
     preview_col1, preview_col2 = st.columns(2)
-    preview_col1.markdown("**Before Cleaning**")
-    preview_col1.write(st.session_state.df_clean[[col]].head(10))
+    preview_col1.markdown("**Before Cleaning (Current State)**")
+    preview_col1.write(df[[col]].head(10))
 
     cleaned_df = df.copy()
     if cleaning_action == "Remove NaNs":
@@ -140,7 +139,7 @@ with tabs[1]:
     elif cleaning_action == "Auto Clean":
         cleaned_df[col] = auto_clean_column(df[col])
 
-    preview_col2.markdown("**After Cleaning**")
+    preview_col2.markdown("**After Cleaning (Preview)**")
     preview_col2.write(cleaned_df[[col]].head(10))
 
     if st.button("Apply Cleaning to Dataset"):
@@ -169,7 +168,6 @@ with tabs[1]:
                 elif fill_na == "Fill with Median" and pd.api.types.is_numeric_dtype(temp_df[col_to_clean]):
                     temp_df[col_to_clean] = temp_df[col_to_clean].fillna(temp_df[col_to_clean].median())
                 elif fill_na == "Fill with Mode":
-                    # IMPROVED: More robust mode filling
                     mode_val = temp_df[col_to_clean].mode()
                     if not mode_val.empty:
                         temp_df[col_to_clean] = temp_df[col_to_clean].fillna(mode_val.iloc[0])
@@ -188,7 +186,6 @@ with tabs[2]:
         st.write("### 🗑 Drop Columns")
         drop_cols = st.multiselect("Select columns to drop", df.columns.tolist())
         if st.button("Drop Selected Columns"):
-            # IMPROVED: Replaced inplace=True
             st.session_state.df_clean = df.drop(columns=drop_cols)
             st.success("✅ Dropped selected columns")
             st.rerun()
@@ -199,8 +196,7 @@ with tabs[2]:
         new_col = st.text_input("New column name")
         if st.button("Rename"):
             if new_col.strip():
-                # IMPROVED: Replaced inplace=True
-                st.session_state.df_clean = df.rename(columns={old_col: new_col})
+                                st.session_state.df_clean = df.rename(columns={old_col: new_col})
                 st.success(f"✅ Renamed `{old_col}` to `{new_col}`")
                 st.rerun()
 
@@ -297,7 +293,7 @@ with tabs[4]:
         st.success(f"✅ Removed {before - after} duplicate rows")
         st.rerun()
 
-# --- Advanced Filter Tab (REFACTORED) ---
+# --- Advanced Filter Tab ---
 with tabs[5]:
     st.subheader("🧠 Advanced Multi-Column Filtering")
     st.info("This filter is applied to the current dataset and will modify it for export.")
@@ -380,3 +376,4 @@ with tabs[6]:
         file_name="cleaned_data.csv",
         mime="text/csv"
     )
+
