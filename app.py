@@ -196,7 +196,7 @@ with tabs[2]:
         new_col = st.text_input("New column name")
         if st.button("Rename"):
             if new_col.strip():
-                                st.session_state.df_clean = df.rename(columns={old_col: new_col})
+                st.session_state.df_clean = df.rename(columns={old_col: new_col})
                 st.success(f"✅ Renamed `{old_col}` to `{new_col}`")
                 st.rerun()
 
