@@ -352,7 +352,8 @@ elif st.session_state.active_tab == "🧠 Advanced Filter":
 
 # --- Export Tab ---
 st.write("🧪 Current Cleaned Columns:", st.session_state.df_clean.columns.tolist())
-elif st.session_state.active_tab == "⬇️ Export":
+
+   elif st.session_state.active_tab == "⬇️ Export":
     st.subheader("⬇️ Export Cleaned CSV")
     export_df = st.session_state.get("df_clean", pd.DataFrame())
     st.dataframe(export_df, use_container_width=True)
