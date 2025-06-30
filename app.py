@@ -4,26 +4,30 @@ import numpy as np
 import re
 from io import StringIO
 import requests
-import dateutil.parser
 
+# --- Page and State Configuration ---
+st.set_page_config(page_title="CleanSheet - All-in-One CSV Cleaner", layout="wide")
+
+# Centralized session state initialization
 if "active_tab" not in st.session_state:
     st.session_state.active_tab = "📊 Preview"
-
-st.set_page_config(page_title="CleanSheet - All-in-One CSV Cleaner", layout="wide")
-st.title("🧹 CleanSheet")
-st.caption("An all-in-one, no-code data cleaning assistant")
-st.sidebar.markdown("### 📦 Load Dataset")
-
-# File uploader + sample loader
-load_sample = st.sidebar.button("📂 Load Sample Titanic Dataset")
-uploaded_file = st.sidebar.file_uploader("📤 Or Upload your CSV file", type=["csv"])
-
-# Load dataset into session state
 if "df_clean" not in st.session_state:
     st.session_state.df_clean = None
 if "df_original" not in st.session_state:
     st.session_state.df_original = None
+if "adv_filter_reset_key" not in st.session_state:
+    st.session_state.adv_filter_reset_key = 0 # ADDED: For resetting advanced filter widgets
 
+# --- UI Header ---
+st.title("🧹 CleanSheet")
+st.caption("An all-in-one, no-code data cleaning assistant")
+
+# --- Sidebar for Data Loading ---
+st.sidebar.markdown("### 📦 Load Dataset")
+load_sample = st.sidebar.button("📂 Load Sample Titanic Dataset")
+uploaded_file = st.sidebar.file_uploader("📤 Or Upload your CSV file", type=["csv"])
+
+# --- Data Loading Logic ---
 if load_sample:
     titanic_url = "https://raw.githubusercontent.com/datasciencedojo/datasets/master/titanic.csv"
     try:
@@ -31,6 +35,7 @@ if load_sample:
         df = pd.read_csv(StringIO(response.text))
         st.session_state.df_original = df.copy()
         st.session_state.df_clean = df.copy()
+        st.session_state.adv_filter_reset_key += 1 # Reset filters on new data
         st.success("✅ Sample Titanic dataset loaded successfully!")
     except Exception as e:
         st.error(f"❌ Failed to load sample data: {e}")
@@ -38,14 +43,16 @@ if load_sample:
 elif uploaded_file is not None:
     try:
         df = pd.read_csv(uploaded_file)
-        df.replace(["", "na", "n/a", "null", "none", "-", "--", "NaN", "NAN", "?", "unknown"], np.nan, inplace=True)
+        # IMPROVED: Replaced inplace=True with reassignment
+        df = df.replace(["", "na", "n/a", "null", "none", "-", "--", "NaN", "NAN", "?", "unknown"], np.nan)
         st.session_state.df_original = df.copy()
         st.session_state.df_clean = df.copy()
+        st.session_state.adv_filter_reset_key += 1 # Reset filters on new data
         st.success("✅ Your dataset was uploaded successfully!")
     except Exception as e:
         st.error(f"❌ Failed to read uploaded file: {e}")
 
-# Ensure data is available
+# Exit if no data is loaded
 if st.session_state.df_clean is None:
     st.info("📎 Please upload a CSV file or load the sample dataset to get started.")
     st.stop()
@@ -53,8 +60,7 @@ if st.session_state.df_clean is None:
 # Use the session state dataframe going forward
 df = st.session_state.df_clean
 
-
-# --- Helpers ---
+# --- Helper Functions ---
 def clean_text(x):
     return str(x).strip().title() if pd.notnull(x) else x
 
@@ -89,17 +95,14 @@ def auto_clean_column(series):
             "no": "No", "n": "No", "0": "No",
             "m": "Male", "f": "Female"
         }).str.title()
-
     return series
 
-# --- Tabs for navigation ---
+# --- Main App with Tabs ---
 tab_labels = ["📊 Preview", "🧹 Clean", "🧮 Columns", "🔍 Filter", "📈 Sort", "🧠 Advanced Filter", "⬇️ Export"]
-tab_index = tab_labels.index(st.session_state.active_tab)
 tabs = st.tabs(tab_labels)
 
 # --- Preview Tab ---
 with tabs[0]:
-    st.session_state.active_tab = tab_labels[0]
     st.subheader("🔎 Dataset Preview")
     view_opt = st.radio("How much data to show?", ["Top 5", "Top 50", "All"], horizontal=True)
     if view_opt == "Top 5":
@@ -114,14 +117,7 @@ with tabs[0]:
 
 # --- Clean Tab ---
 with tabs[1]:
-    st.session_state.active_tab = tab_labels[1]
     st.subheader("🧹 Clean Column Values")
-
-    df = st.session_state.get("df_clean", pd.DataFrame()).copy()
-    if df.empty:
-        st.warning("⚠️ No dataset loaded.")
-        st.stop()
-
     col = st.selectbox("Select a column to clean", df.columns)
     cleaning_action = st.selectbox(
         "Choose cleaning operation",
@@ -132,45 +128,32 @@ with tabs[1]:
     preview_col1.markdown("**Before Cleaning**")
     preview_col1.write(st.session_state.df_clean[[col]].head(10))
 
-    cleaned_df = df.copy() # Work on a copy for preview
-
+    cleaned_df = df.copy()
     if cleaning_action == "Remove NaNs":
         cleaned_df = df[df[col].notna()]
-        st.success("✅ NaN rows removed.")
     elif cleaning_action == "Fill NaNs with 0":
         cleaned_df[col] = df[col].fillna(0)
-        st.success("✅ NaNs filled with 0.")
     elif cleaning_action == "To lowercase":
         cleaned_df[col] = df[col].astype(str).str.lower()
-        st.success("✅ Converted to lowercase.")
     elif cleaning_action == "To title case":
         cleaned_df[col] = df[col].astype(str).str.title()
-        st.success("✅ Converted to title case.")
     elif cleaning_action == "Auto Clean":
         cleaned_df[col] = auto_clean_column(df[col])
-        st.success("✅ Auto-cleaning applied to column.")
 
-    # Show cleaned preview
     preview_col2.markdown("**After Cleaning**")
     preview_col2.write(cleaned_df[[col]].head(10))
 
     if st.button("Apply Cleaning to Dataset"):
         st.session_state.df_clean = cleaned_df.copy()
+        st.success("✅ Cleaning applied!")
         st.rerun()
 
     st.markdown("---")
-    st.subheader("🔎 Clean All Columns")
-    columns = st.session_state.df_clean.columns.tolist()
-
-    for col_to_clean in columns:
+    st.subheader("🔎 Clean All Columns (Comprehensive)")
+    for col_to_clean in df.columns:
         with st.expander(f"⚙️ Options for `{col_to_clean}`"):
-            clean_opt = st.selectbox(f"Cleaning for `{col_to_clean}`", [
-                "None", "Text Normalize", "Convert to Numeric"
-            ], key=f"clean_{col_to_clean}")
-
-            fill_na = st.selectbox(f"Missing values in `{col_to_clean}`", [
-                "None", "Drop Rows", "Fill with Mean", "Fill with Median", "Fill with Mode"
-            ], key=f"na_{col_to_clean}")
+            clean_opt = st.selectbox(f"Cleaning for `{col_to_clean}`", ["None", "Text Normalize", "Convert to Numeric"], key=f"clean_{col_to_clean}")
+            fill_na = st.selectbox(f"Missing values in `{col_to_clean}`", ["None", "Drop Rows", "Fill with Mean", "Fill with Median", "Fill with Mode"], key=f"na_{col_to_clean}")
 
             if st.button(f"✅ Apply to `{col_to_clean}`", key=f"apply_{col_to_clean}"):
                 temp_df = st.session_state.df_clean.copy()
@@ -180,30 +163,33 @@ with tabs[1]:
                     temp_df[col_to_clean] = temp_df[col_to_clean].apply(convert_to_numeric)
 
                 if fill_na == "Drop Rows":
-                    temp_df = temp_df[temp_df[col_to_clean].notna()]
+                    temp_df = temp_df.dropna(subset=[col_to_clean])
                 elif fill_na == "Fill with Mean" and pd.api.types.is_numeric_dtype(temp_df[col_to_clean]):
-                    temp_df[col_to_clean].fillna(temp_df[col_to_clean].mean(), inplace=True)
+                    temp_df[col_to_clean] = temp_df[col_to_clean].fillna(temp_df[col_to_clean].mean())
                 elif fill_na == "Fill with Median" and pd.api.types.is_numeric_dtype(temp_df[col_to_clean]):
-                    temp_df[col_to_clean].fillna(temp_df[col_to_clean].median(), inplace=True)
+                    temp_df[col_to_clean] = temp_df[col_to_clean].fillna(temp_df[col_to_clean].median())
                 elif fill_na == "Fill with Mode":
-                    temp_df[col_to_clean].fillna(temp_df[col_to_clean].mode().iloc[0], inplace=True)
-
+                    # IMPROVED: More robust mode filling
+                    mode_val = temp_df[col_to_clean].mode()
+                    if not mode_val.empty:
+                        temp_df[col_to_clean] = temp_df[col_to_clean].fillna(mode_val.iloc[0])
+                    else:
+                        st.warning(f"Column `{col_to_clean}` has no mode. No values were filled.")
+                
                 st.session_state.df_clean = temp_df
                 st.success(f"✅ Cleaning applied to `{col_to_clean}`")
                 st.rerun()
 
 # --- Column Tab ---
 with tabs[2]:
-    st.session_state.active_tab = tab_labels[2]
     st.subheader("🧮 Manage Columns")
-
     col1, col2 = st.columns(2)
     with col1:
         st.write("### 🗑 Drop Columns")
         drop_cols = st.multiselect("Select columns to drop", df.columns.tolist())
         if st.button("Drop Selected Columns"):
-            df.drop(columns=drop_cols, inplace=True)
-            st.session_state.df_clean = df
+            # IMPROVED: Replaced inplace=True
+            st.session_state.df_clean = df.drop(columns=drop_cols)
             st.success("✅ Dropped selected columns")
             st.rerun()
 
@@ -213,11 +199,12 @@ with tabs[2]:
         new_col = st.text_input("New column name")
         if st.button("Rename"):
             if new_col.strip():
-                df.rename(columns={old_col: new_col}, inplace=True)
-                st.session_state.df_clean = df
+                # IMPROVED: Replaced inplace=True
+                st.session_state.df_clean = df.rename(columns={old_col: new_col})
                 st.success(f"✅ Renamed `{old_col}` to `{new_col}`")
                 st.rerun()
 
+    st.markdown("---")
     st.write("### ➕ Merge Columns")
     merge_cols = st.multiselect("Select 2 or more columns to merge", df.columns.tolist(), key="merge_cols")
     merge_name = st.text_input("Merged column name", key="merge_name")
@@ -229,6 +216,7 @@ with tabs[2]:
             st.success(f"✅ Created merged column `{merge_name}`")
             st.rerun()
 
+    st.markdown("---")
     st.write("### 🔤 Split Alphanumeric Column")
     split_col = st.selectbox("Select alphanumeric column to split", df.columns.tolist(), key="split_col")
     new_alpha = st.text_input("New column for alphabets", key="alpha_part")
@@ -236,102 +224,67 @@ with tabs[2]:
 
     if st.button("Split Alphanumeric"):
         if new_alpha and new_num:
-            df[new_alpha] = df[split_col].astype(str).apply(lambda x: ''.join(re.findall(r'[A-Za-z]+', x)))
-            df[new_num] = df[split_col].astype(str).apply(lambda x: ''.join(re.findall(r'\d+', x)))
+            df[new_alpha] = df[split_col].astype(str).str.findall(r'[A-Za-z]').str.join('')
+            df[new_num] = df[split_col].astype(str).str.findall(r'\d').str.join('')
             st.session_state.df_clean = df
             st.success(f"✅ Split `{split_col}` into `{new_alpha}` and `{new_num}`")
             st.rerun()
 
-
 # --- Filter Tab ---
 with tabs[3]:
-    st.session_state.active_tab = tab_labels[3]
-    st.subheader("🔍 Filter Rows (temporary view only)")
-
-    df_to_filter = st.session_state.get("df_clean", pd.DataFrame()).copy()
-    col_to_filter = st.selectbox("Choose column to filter", df_to_filter.columns.tolist())
-    filtered_df = df_to_filter.copy()
-
-    # Numeric filtering
-    if pd.api.types.is_numeric_dtype(df_to_filter[col_to_filter]):
-        st.write(f"📏 Numeric Range Filter for `{col_to_filter}`")
-        min_val, max_val = float(df_to_filter[col_to_filter].min()), float(df_to_filter[col_to_filter].max())
-
+    st.subheader("🔍 Filter Rows")
+    st.info("This filter creates a temporary view. Press 'Apply' to make changes permanent.")
+    col_to_filter = st.selectbox("Choose column to filter", df.columns.tolist())
+    
+    filtered_df = df.copy()
+    
+    if pd.api.types.is_numeric_dtype(df[col_to_filter]):
+        min_val, max_val = float(df[col_to_filter].min()), float(df[col_to_filter].max())
         if min_val == max_val:
             st.warning(f"⚠️ All values in `{col_to_filter}` are the same: {min_val}")
         else:
-            step_val = max((max_val - min_val) / 100, 0.01)
-            start, end = st.slider(
-                "Select value range",
-                min_value=min_val,
-                max_value=max_val,
-                value=(min_val, max_val),
-                step=step_val
-            )
-            filtered_df = df_to_filter[df_to_filter[col_to_filter].between(start, end)]
-            st.info(f"Showing rows where `{col_to_filter}` is between {start:.2f} and {end:.2f}.")
-
-    # Datetime filtering
-    elif pd.api.types.is_datetime64_any_dtype(df_to_filter[col_to_filter]) or "date" in col_to_filter.lower():
-        st.write(f"🗓 Date Range Filter for `{col_to_filter}`")
-        df_to_filter[col_to_filter] = pd.to_datetime(df_to_filter[col_to_filter], errors='coerce')
-        min_date = df_to_filter[col_to_filter].min()
-        max_date = df_to_filter[col_to_filter].max()
-
-        if pd.isnull(min_date) or pd.isnull(max_date):
-            st.warning(f"⚠️ Could not convert `{col_to_filter}` to datetime.")
+            start, end = st.slider("Select value range", min_val, max_val, (min_val, max_val))
+            filtered_df = df[df[col_to_filter].between(start, end)]
+    
+    elif pd.api.types.is_datetime64_any_dtype(df[col_to_filter]):
+        temp_col = pd.to_datetime(df[col_to_filter], errors='coerce')
+        min_date, max_date = temp_col.min(), temp_col.max()
+        if pd.isna(min_date) or pd.isna(max_date):
+            st.warning(f"⚠️ Could not parse `{col_to_filter}` as datetime.")
         else:
-            date_start, date_end = st.date_input(
-                "Select date range",
-                value=(min_date, max_date),
-                min_value=min_date,
-                max_value=max_date
-            )
-            filtered_df = df_to_filter[df_to_filter[col_to_filter].between(date_start, date_end)]
-            st.info(f"Showing rows where `{col_to_filter}` is between {date_start} and {date_end}.")
-
-    # Categorical filtering
+            date_start, date_end = st.date_input("Select date range", (min_date.date(), max_date.date()), min_date.date(), max_date.date())
+            if date_start and date_end:
+                 filtered_df = df[temp_col.dt.date.between(date_start, date_end)]
     else:
-        st.write(f"🔠 Categorical Filter for `{col_to_filter}`")
-        unique_vals = df_to_filter[col_to_filter].dropna().unique().tolist()
+        unique_vals = df[col_to_filter].dropna().unique().tolist()
         if not unique_vals:
             st.warning("⚠️ No valid values to filter.")
         else:
-            selected_vals = st.multiselect(
-                f"Select values to include from `{col_to_filter}`:",
-                options=unique_vals,
-                default=unique_vals
-            )
-            if selected_vals:
-                filtered_df = df_to_filter[df_to_filter[col_to_filter].isin(selected_vals)]
-                st.info(f"Filtered by selected values in `{col_to_filter}`.")
-            else:
-                filtered_df = df_to_filter.head(0) # Show empty if nothing selected
-                st.caption("No filter applied — showing full dataset.")
-
+            selected_vals = st.multiselect(f"Select values from `{col_to_filter}`:", options=unique_vals, default=unique_vals)
+            filtered_df = df[df[col_to_filter].isin(selected_vals)]
+            
     st.dataframe(filtered_df, use_container_width=True)
 
-    if st.button("✅ Apply This Filter to Dataset"):
-        st.session_state.df_clean = filtered_df.copy()
-        st.success("✅ Filter applied to the dataset.")
-        st.rerun()
-
-    if st.button("🔄 Reset All Filters & Cleaning"):
-        st.session_state.df_clean = st.session_state.df_original.copy()
-        st.success("✅ Dataset has been reset to its original state.")
-        st.rerun()
-
+    c1, c2, _ = st.columns([1,2,3])
+    with c1:
+        if st.button("✅ Apply This Filter"):
+            st.session_state.df_clean = filtered_df.copy()
+            st.success("✅ Filter applied to the dataset.")
+            st.rerun()
+    with c2:
+        if st.button("🔄 Reset All Cleaning & Filters"):
+            st.session_state.df_clean = st.session_state.df_original.copy()
+            st.session_state.adv_filter_reset_key += 1
+            st.success("✅ Dataset has been reset to its original state.")
+            st.rerun()
 
 # --- Sort Tab ---
 with tabs[4]:
-    st.session_state.active_tab = tab_labels[4]
     st.subheader("📈 Sort Data")
-    st.info("ℹ️ Sorting is applied to the current state of the dataset.")
     sort_col = st.selectbox("Column to sort by", df.columns.tolist())
     ascending = st.checkbox("Sort ascending", value=True)
     if st.button("Sort Data"):
-        df = df.sort_values(by=sort_col, ascending=ascending)
-        st.session_state.df_clean = df
+        st.session_state.df_clean = df.sort_values(by=sort_col, ascending=ascending)
         st.success(f"✅ Sorted by `{sort_col}`")
         st.rerun()
 
@@ -339,58 +292,55 @@ with tabs[4]:
     st.write("### 🧬 Remove Duplicate Rows")
     if st.button("Remove Duplicates"):
         before = len(df)
-        df = df.drop_duplicates()
-        after = len(df)
-        st.session_state.df_clean = df
+        st.session_state.df_clean = df.drop_duplicates()
+        after = len(st.session_state.df_clean)
         st.success(f"✅ Removed {before - after} duplicate rows")
         st.rerun()
 
-# --- Advanced Filter Tab ---
+# --- Advanced Filter Tab (REFACTORED) ---
 with tabs[5]:
-    st.session_state.active_tab = tab_labels[5]
     st.subheader("🧠 Advanced Multi-Column Filtering")
     st.info("This filter is applied to the current dataset and will modify it for export.")
 
-    adv_df = st.session_state.get("df_clean", pd.DataFrame()).copy()
-    if adv_df.empty:
-        st.warning("⚠️ No dataset loaded.")
-        st.stop()
+    adv_df = df.copy()
+    adv_filter_key_prefix = f"adv_filter_{st.session_state.adv_filter_reset_key}"
 
-    num_conditions = st.number_input("How many filter conditions?", min_value=1, max_value=5, value=1)
-    logic = st.radio("Combine filters using:", ["AND", "OR"], horizontal=True)
+    num_conditions = st.number_input("How many filter conditions?", min_value=1, max_value=5, value=1, key=f"{adv_filter_key_prefix}_num_conditions")
+    logic = st.radio("Combine filters using:", ["AND", "OR"], horizontal=True, key=f"{adv_filter_key_prefix}_logic")
 
     conditions = []
     for i in range(int(num_conditions)):
-        st.markdown(f"### ➕ Condition #{i+1}")
-        col = st.selectbox(f"Choose column", adv_df.columns, key=f"adv_col_{i}")
+        st.markdown(f"--- \n ### ➕ Condition #{i+1}")
+        col = st.selectbox(f"Choose column", adv_df.columns, key=f"{adv_filter_key_prefix}_col_{i}")
         dtype = adv_df[col].dtype
 
-        # Numeric
         if pd.api.types.is_numeric_dtype(dtype):
             min_val, max_val = float(adv_df[col].min()), float(adv_df[col].max())
             if min_val == max_val:
                 st.warning(f"⚠️ All values in `{col}` are the same: {min_val}")
                 cond = pd.Series([True] * len(adv_df), index=adv_df.index)
             else:
-                range_val = st.slider(f"Range for `{col}`", min_val, max_val, (min_val, max_val), key=f"adv_range_{i}")
+                range_val = st.slider(f"Range for `{col}`", min_val, max_val, (min_val, max_val), key=f"{adv_filter_key_prefix}_range_{i}")
                 cond = adv_df[col].between(range_val[0], range_val[1])
 
-        # Datetime
-        elif pd.api.types.is_datetime64_any_dtype(dtype) or "date" in col.lower():
-            adv_df[col] = pd.to_datetime(adv_df[col], errors="coerce")
-            min_date, max_date = adv_df[col].min(), adv_df[col].max()
-            if pd.isnull(min_date) or pd.isnull(max_date):
-                st.warning(f"⚠️ Cannot parse `{col}` as datetime.")
+        elif pd.api.types.is_datetime64_any_dtype(dtype):
+            temp_col = pd.to_datetime(adv_df[col], errors="coerce")
+            min_date, max_date = temp_col.min(), temp_col.max()
+            if pd.isna(min_date) or pd.isna(max_date):
+                st.warning(f"⚠️ Cannot parse `{col}` as datetime or it contains no valid dates.")
                 cond = pd.Series([True] * len(adv_df), index=adv_df.index)
             else:
-                start_date, end_date = st.date_input(f"Date range for `{col}`", (min_date.date(), max_date.date()), key=f"adv_date_{i}")
-                cond = adv_df[col].dt.date.between(start_date, end_date)
+                start_date, end_date = st.date_input(f"Date range for `{col}`", (min_date.date(), max_date.date()), key=f"{adv_filter_key_prefix}_date_{i}")
+                if start_date and end_date:
+                    cond = temp_col.dt.date.between(start_date, end_date)
+                else:
+                    cond = pd.Series([True] * len(adv_df), index=adv_df.index)
 
-        # Categorical
-        else:
+        else: # Categorical
             values = adv_df[col].dropna().unique().tolist()
-            selected = st.multiselect(f"Select values for `{col}`", values, key=f"adv_cat_{i}", default=values)
-            cond = adv_df[col].isin(selected) if selected else pd.Series([False] * len(adv_df), index=adv_df.index)
+            default_selection = values if values else []
+            selected = st.multiselect(f"Select values for `{col}`", values, key=f"{adv_filter_key_prefix}_cat_{i}", default=default_selection)
+            cond = adv_df[col].isin(selected)
 
         conditions.append(cond)
 
@@ -398,24 +348,29 @@ with tabs[5]:
     if conditions:
         combined_mask = conditions[0]
         for c in conditions[1:]:
-            combined_mask = combined_mask & c if logic == "AND" else combined_mask | c
+            combined_mask = (combined_mask & c) if logic == "AND" else (combined_mask | c)
         adv_filtered_df = adv_df[combined_mask]
 
+    st.markdown("---")
+    st.subheader("Filtered Data Preview")
     st.dataframe(adv_filtered_df, use_container_width=True)
     st.success(f"✅ Previewing {len(adv_filtered_df)} rows that match your filters.")
 
-    if st.button("✅ Apply These Advanced Filters"):
-        st.session_state.df_clean = adv_filtered_df.copy()
-        st.success("✅ Filters applied to the dataset.")
-        st.rerun()
+    col1, col2, _ = st.columns([1.5, 1.5, 4])
+    with col1:
+        if st.button("✅ Apply These Advanced Filters"):
+            st.session_state.df_clean = adv_filtered_df.copy()
+            st.success("✅ Advanced filters applied to the dataset.")
+            st.rerun()
+    with col2:
+        if st.button("🔄 Reset Conditions"):
+            st.session_state.adv_filter_reset_key += 1
+            st.rerun()
 
 # --- Export Tab ---
 with tabs[6]:
-    st.session_state.active_tab = tab_labels[6]
     st.subheader("⬇️ Export Cleaned CSV")
-
     export_df = st.session_state.get("df_clean", pd.DataFrame())
-
     st.dataframe(export_df, use_container_width=True)
 
     csv = export_df.to_csv(index=False).encode("utf-8")
