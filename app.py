@@ -170,9 +170,11 @@ elif st.session_state.active_tab == "🧹 Clean":
     preview_col2.write(cleaned[[col]].head(10))
 
     if st.button("✅ Apply Cleaning"):
-        st.session_state.df_clean = cleaned.copy()
-        st.success("✅ Cleaning applied.")
-        st.rerun()
+    st.session_state.df_clean = st.session_state.df_clean.copy()
+    st.session_state.df_clean.update(cleaned)
+    st.success("✅ Cleaning applied and saved to session.")
+    st.rerun()
+
 
     st.markdown("---")
     st.subheader("🧹 Bulk Column Cleaning")
@@ -347,6 +349,7 @@ elif st.session_state.active_tab == "🧠 Advanced Filter":
         st.rerun()
 
 # --- Export Tab ---
+st.write("🧪 Current Cleaned Columns:", st.session_state.df_clean.columns.tolist())
 elif st.session_state.active_tab == "⬇️ Export":
     st.subheader("⬇️ Export Cleaned CSV")
     export_df = st.session_state.get("df_clean", pd.DataFrame())
