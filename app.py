@@ -27,15 +27,6 @@ st.radio(
     horizontal=True, label_visibility="collapsed"
 )
 
-# --- Navigation UI ---
-# Place this after dataset load, before tab logic
-st.radio(
-    "Navigation",
-    options=TAB_LABELS,
-    key="active_tab",
-    horizontal=True,
-    label_visibility="collapsed"
-)
 
 # --- 3. STREAMLIT PAGE CONFIG ---
 st.set_page_config(page_title=APP_TITLE, layout="wide")
@@ -124,6 +115,15 @@ if st.session_state.df_clean is None:
     st.stop()
 
 df_display = st.session_state.df_clean.copy()
+
+# --- Navigation UI ---
+st.radio(
+    "Navigation",
+    options=TAB_LABELS,
+    key="active_tab",
+    horizontal=True,
+    label_visibility="collapsed"
+)
 
 # --- 8. HELPER FUNCTIONS ---
 def convert_to_numeric(x):
