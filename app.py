@@ -159,8 +159,9 @@ elif st.session_state.active_tab == "🧹 Clean":
 
     # Perform selected actions
     for action in actions:# --- 🧹 Clean Tab ---
-    elif st.session_state.active_tab == "🧹 Clean":
-    st.subheader("🧹 Clean Your Dataset")
+        
+     elif st.session_state.active_tab == "🧹 Clean":
+     st.subheader("🧹 Clean Your Dataset")
 
     if st.session_state.df_clean is None or st.session_state.df_clean.empty:
         st.warning("⚠️ No dataset loaded.")
