@@ -1,6 +1,3 @@
-# app.py
-
-# --- 1. IMPORTS ---
 import re
 import time
 from io import StringIO
