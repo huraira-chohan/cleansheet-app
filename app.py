@@ -158,43 +158,82 @@ elif st.session_state.active_tab == "🧹 Clean":
     cleaned_df = df_clean_tab.copy()
 
     # Perform selected actions
+    for action in actions:# --- 🧹 Clean Tab ---
+elif st.session_state.active_tab == "🧹 Clean":
+    st.subheader("🧹 Clean Your Dataset")
+
+    if st.session_state.df_clean is None or st.session_state.df_clean.empty:
+        st.warning("⚠️ No dataset loaded.")
+        st.stop()
+
+    df_clean_tab = st.session_state.df_clean.copy()
+
+    # --- Column-wise Cleaning ---
+    st.markdown("### 🔧 Column-wise Cleaning")
+    col = st.selectbox("Select column to clean", df_clean_tab.columns)
+
+    actions = st.multiselect(
+        "Select cleaning steps (applied in order)",
+        [
+            "Remove NaNs", "Fill NaNs with 0", "Fill NaNs with Mean", "Fill NaNs with Median", "Custom Fill",
+            "To Lowercase", "To Title Case", "Convert to Numeric", "Auto Clean", "Strip Whitespace",
+            "Replace Values", "Remove Duplicates", "Remove Outliers"
+        ]
+    )
+
+    custom_fill_value = st.text_input("Custom value for NaNs (if selected)", key="custom_fill_val")
+
+    replace_dict = {}
+    if "Replace Values" in actions:
+        with st.expander("🔄 Replace Values"):
+            old_vals = st.text_input("Old values (comma-separated)", key="old_vals")
+            new_val = st.text_input("New value to replace them with", key="new_val")
+            if old_vals:
+                replace_dict = {v.strip(): new_val for v in old_vals.split(",")}
+
+    col1, col2 = st.columns(2)
+    col1.write("**Before Cleaning**")
+    col1.dataframe(df_clean_tab[[col]].head(10), use_container_width=True)
+
+    # Work on the original df_clean
+    working_df = st.session_state.df_clean.copy()
+
     for action in actions:
         if action == "Remove NaNs":
-            cleaned_df = cleaned_df[cleaned_df[col].notna()]
+            working_df = working_df[working_df[col].notna()]
         elif action == "Fill NaNs with 0":
-            cleaned_df[col] = cleaned_df[col].fillna(0)
-        elif action == "Fill NaNs with Mean" and pd.api.types.is_numeric_dtype(cleaned_df[col]):
-            cleaned_df[col] = cleaned_df[col].fillna(cleaned_df[col].mean())
-        elif action == "Fill NaNs with Median" and pd.api.types.is_numeric_dtype(cleaned_df[col]):
-            cleaned_df[col] = cleaned_df[col].fillna(cleaned_df[col].median())
+            working_df[col] = working_df[col].fillna(0)
+        elif action == "Fill NaNs with Mean" and pd.api.types.is_numeric_dtype(working_df[col]):
+            working_df[col] = working_df[col].fillna(working_df[col].mean())
+        elif action == "Fill NaNs with Median" and pd.api.types.is_numeric_dtype(working_df[col]):
+            working_df[col] = working_df[col].fillna(working_df[col].median())
         elif action == "Custom Fill":
-            cleaned_df[col] = cleaned_df[col].fillna(custom_fill_value)
+            working_df[col] = working_df[col].fillna(custom_fill_value)
         elif action == "To Lowercase":
-            cleaned_df[col] = cleaned_df[col].astype(str).str.lower()
+            working_df[col] = working_df[col].astype(str).str.lower()
         elif action == "To Title Case":
-            cleaned_df[col] = cleaned_df[col].astype(str).str.title()
+            working_df[col] = working_df[col].astype(str).str.title()
         elif action == "Convert to Numeric":
-            cleaned_df[col] = cleaned_df[col].apply(convert_to_numeric)
+            working_df[col] = working_df[col].apply(convert_to_numeric)
         elif action == "Strip Whitespace":
-            cleaned_df[col] = cleaned_df[col].astype(str).str.strip()
+            working_df[col] = working_df[col].astype(str).str.strip()
         elif action == "Auto Clean":
-            cleaned_df[col] = auto_clean_column(cleaned_df[col])
+            working_df[col] = auto_clean_column(working_df[col])
         elif action == "Replace Values" and replace_dict:
-            cleaned_df[col] = cleaned_df[col].replace(replace_dict)
+            working_df[col] = working_df[col].replace(replace_dict)
         elif action == "Remove Duplicates":
-            cleaned_df = cleaned_df.drop_duplicates(subset=[col])
-        elif action == "Remove Outliers" and pd.api.types.is_numeric_dtype(cleaned_df[col]):
-            mean_val = cleaned_df[col].mean()
-            std_val = cleaned_df[col].std()
-            cleaned_df = cleaned_df[(cleaned_df[col] - mean_val).abs() <= 3 * std_val]
+            working_df = working_df.drop_duplicates(subset=[col])
+        elif action == "Remove Outliers" and pd.api.types.is_numeric_dtype(working_df[col]):
+            mean_val = working_df[col].mean()
+            std_val = working_df[col].std()
+            working_df = working_df[(working_df[col] - mean_val).abs() <= 3 * std_val]
 
     col2.write("**After Cleaning**")
-    col2.dataframe(cleaned_df[[col]].head(10), use_container_width=True)
+    col2.dataframe(working_df[[col]].head(10), use_container_width=True)
 
-    # ✅ Update full df_clean
     if st.button("✅ Apply Cleaning"):
-        st.session_state.df_clean = cleaned_df.copy()
-        st.success("✅ Cleaning applied and stored in exportable dataset.")
+        st.session_state.df_clean = working_df.copy()
+        st.success("✅ Cleaning applied and stored in session.")
         st.rerun()
 
     if st.button("🔄 Reset Column Cleaning"):
@@ -202,7 +241,7 @@ elif st.session_state.active_tab == "🧹 Clean":
         st.success("✅ Dataset reset to original.")
         st.rerun()
 
-    # --- Bulk Column Cleaning ---
+    # --- Bulk Cleaning ---
     st.markdown("---")
     st.subheader("🧹 Bulk Column Cleaning")
     for c in df_clean_tab.columns:
@@ -239,7 +278,7 @@ elif st.session_state.active_tab == "🧹 Clean":
                         pass
 
                 st.session_state.df_clean = bulk_df.copy()
-                st.success(f"✅ Applied cleaning to `{c}`")
+                st.success(f"✅ Bulk cleaning applied to `{c}`")
                 st.rerun()
 
     st.markdown("---")
@@ -247,7 +286,6 @@ elif st.session_state.active_tab == "🧹 Clean":
         st.session_state.df_clean = st.session_state.df_original.copy()
         st.success("✅ Dataset reset to original.")
         st.rerun()
-
 
 
 # --- 🧮 Columns Tab ---
