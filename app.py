@@ -1,803 +1,760 @@
-# ==============================================================================
-# Comprehensive CSV Data Cleaning Streamlit Application
+# ==================================================================================================
+#           ULTIMATE CSV CLEANING & PREPROCESSING STREAMLIT APPLICATION
+# ==================================================================================================
 #
 # Author: Gemini Advanced (Google)
+# Version: 1.0 (Robust Edition)
 # Date: May 2024
 #
 # Description:
-# A full-featured, robust, and user-friendly Streamlit application designed for
-# comprehensive CSV file cleaning. This application provides a multi-page
-# interface to guide the user through the entire data cleaning pipeline, from
-# loading and initial inspection to advanced cleaning tasks and final export.
+# This is a comprehensive, production-quality Streamlit application for cleaning, preprocessing,
+# and transforming CSV data. It is engineered with a focus on robustness, user experience,
+# and a rich feature set to handle a wide variety of data cleaning challenges.
 #
-# Features:
-# 1.  File Upload and Session State Management.
-# 2.  Data Overview: Head, Tail, Info, Description, Value Counts.
-# 3.  Missing Value Analysis and Handling (Drop/Impute).
-# 4.  Column Management: Drop, Rename, Change Data Type.
-# 5.  Duplicate Record Handling.
-# 6.  Outlier Detection and Removal (IQR, Z-Score).
-# 7.  Text Data Cleaning Tools.
-# 8.  Interactive Data Filtering and Querying.
-# 9.  Download Cleaned Data.
+# Key Architectural Features:
+# 1.  Robust State Management: Centralized session state with original data backup and action history.
+# 2.  Defensive Programming: Extensive error handling and input validation to prevent crashes.
+# 3.  Modular Design: Each cleaning task is encapsulated in its own function for clarity.
+# 4.  Advanced Functionality: Goes beyond basic cleaning to include scaling, encoding, and transformations.
+# 5.  User-Centric UI: Heavy use of explainers, visual feedback, and intuitive layouts.
 #
-# The code is designed to be modular, robust, and well-documented to meet
-# the challenge requirements.
-# ==============================================================================
+# ==================================================================================================
 
-# --- Core Imports ---
+# --- Core and Data Handling Imports ---
 import streamlit as st
 import pandas as pd
 import numpy as np
 import io
 import base64
+from typing import List, Dict, Callable
 
 # --- Visualization Imports ---
 import plotly.express as px
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-# ==============================================================================
-# 1. APPLICATION SETUP AND STATE MANAGEMENT
-# ==============================================================================
+# --- Machine Learning & Preprocessing Imports ---
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
+
+# ==================================================================================================
+# 2. APPLICATION CONFIGURATION AND CONSTANTS
+# ==================================================================================================
+
+APP_TITLE = "The Ultimate CSV Data Cleaner"
+APP_ICON = "-🧹"
+
+# Define the structure of our application pages
+PAGES = {
+    "🏠 Home: Upload & Inspect": "render_home_page",
+    "📊 Data Profiling & Overview": "render_profiling_page",
+    "❓ Missing Value Manager": "render_missing_values_page",
+    "🏛️ Column Operations": "render_column_management_page",
+    "📑 Row & Duplicate Manager": "render_duplicate_handling_page",
+    "📈 Outlier Detection & Handling": "render_outlier_page",
+    "🔬 Data Transformation": "render_transformation_page",
+    "📜 Action History": "render_history_page",
+    "📥 Download & Export": "render_download_page",
+}
+
+# ==================================================================================================
+# 3. ROBUST STATE MANAGEMENT
+# ==================================================================================================
 
 def initialize_session_state():
     """
-    Initializes the Streamlit session state variables.
-    This function is called once at the start of the script to ensure all
-    necessary keys are present in st.session_state.
+    Initializes all necessary keys in st.session_state on first run.
+    This centralized function prevents state-related errors.
     """
-    # --- DataFrame Storage ---
+    # --- Core Data Storage ---
     if 'df' not in st.session_state:
-        st.session_state.df = None  # Holds the current working dataframe
+        st.session_state.df = None
     if 'df_original' not in st.session_state:
-        st.session_state.df_original = None  # Holds a backup of the original df
+        st.session_state.df_original = None
 
-    # --- Control Flags ---
+    # --- Control and UI Flags ---
     if 'file_uploader_key' not in st.session_state:
-        st.session_state.file_uploader_key = 0  # Used to reset the file uploader
+        st.session_state.file_uploader_key = 0
     if 'file_uploaded' not in st.session_state:
-        st.session_state.file_uploaded = False # Flag to check if a file has been processed
-
-    # --- UI State for specific pages ---
+        st.session_state.file_uploaded = False
     if 'active_page' not in st.session_state:
-        st.session_state.active_page = "Home"
+        st.session_state.active_page = list(PAGES.keys())[0]
+    if 'file_name' not in st.session_state:
+        st.session_state.file_name = None
 
+    # --- Action History Log ---
+    if 'history' not in st.session_state:
+        st.session_state.history = []
 
 def reset_app_state():
     """
-    Resets the application to its initial state.
-    This involves clearing the DataFrames and resetting control flags.
-    It's triggered by the 'Upload a new file' button.
+    Resets the application to its initial state, ready for a new file.
+    This function is carefully designed to reset all relevant state variables.
     """
     st.session_state.df = None
     st.session_state.df_original = None
     st.session_state.file_uploaded = False
-    st.session_state.file_uploader_key += 1 # Increment key to force re-render of file_uploader
-    st.session_state.active_page = "Home"  # <-- THE FIX: Reset the active page to a valid default.
+    st.session_state.file_uploader_key += 1
+    st.session_state.active_page = list(PAGES.keys())[0]
+    st.session_state.history = []
+    st.session_state.file_name = None
     st.toast("Application has been reset. Please upload a new file.", icon="🔄")
+    st.rerun()
 
+def log_action(description: str, code_snippet: str = None):
+    """
+    Logs a user action to the history.
 
-# ==============================================================================
-# 2. HELPER & UTILITY FUNCTIONS
-# ==============================================================================
+    Args:
+        description (str): A user-friendly description of the action.
+        code_snippet (str, optional): The equivalent pandas code. Defaults to None.
+    """
+    st.session_state.history.append({"description": description, "code": code_snippet})
+    st.toast(f"Action logged: {description}", icon="✅")
+
+# ==================================================================================================
+# 4. HELPER & UTILITY FUNCTIONS
+# ==================================================================================================
 
 def get_dataframe_info(df: pd.DataFrame) -> str:
-    """
-    Captures the output of df.info() into a string.
-    Standard df.info() prints to stdout, so we need to redirect it to capture
-    it for display in Streamlit.
-
-    Args:
-        df (pd.DataFrame): The DataFrame to get info from.
-
-    Returns:
-        str: The string representation of the DataFrame's info.
-    """
+    """Captures df.info() output into a string."""
     buffer = io.StringIO()
-    df.info(buf=buffer)
+    df.info(buf=buffer, verbose=True)
     return buffer.getvalue()
 
-def get_numeric_columns(df: pd.DataFrame) -> list:
-    """
-    Identifies and returns a list of numeric column names from a DataFrame.
-
-    Args:
-        df (pd.DataFrame): The input DataFrame.
-
-    Returns:
-        list: A list of column names that are of a numeric data type.
-    """
+def get_numeric_columns(df: pd.DataFrame) -> List[str]:
+    """Returns a list of numeric column names."""
     if df is None:
         return []
     return df.select_dtypes(include=np.number).columns.tolist()
 
-def get_categorical_columns(df: pd.DataFrame) -> list:
-    """
-    Identifies and returns a list of categorical/object column names.
-
-    Args:
-        df (pd.DataFrame): The input DataFrame.
-
-    Returns:
-        list: A list of column names that are of 'object', 'category', or 'boolean' type.
-    """
+def get_categorical_columns(df: pd.DataFrame) -> List[str]:
+    """Returns a list of categorical/object column names."""
     if df is None:
         return []
     return df.select_dtypes(include=['object', 'category', 'bool']).columns.tolist()
 
-def get_datetime_columns(df: pd.DataFrame) -> list:
-    """
-    Identifies and returns a list of datetime column names from a DataFrame.
-
-    Args:
-        df (pd.DataFrame): The input DataFrame.
-
-    Returns:
-        list: A list of column names that are of a datetime data type.
-    """
+def get_datetime_columns(df: pd.DataFrame) -> List[str]:
+    """Returns a list of datetime column names."""
     if df is None:
         return []
     return df.select_dtypes(include=['datetime64', 'datetimetz']).columns.tolist()
 
+# ==================================================================================================
+# 5. UI PAGE RENDERING FUNCTIONS
+#
+# Each function is responsible for a single page in the application. This modular approach
+# keeps the code clean and manageable.
+# ==================================================================================================
 
-def generate_download_link(df: pd.DataFrame, filename: str) -> str:
-    """
-    Generates a link to download the given DataFrame as a CSV file.
-
-    Args:
-        df (pd.DataFrame): The DataFrame to download.
-        filename (str): The desired filename for the downloaded file.
-
-    Returns:
-        str: An HTML anchor tag for the download link.
-    """
-    csv = df.to_csv(index=False)
-    b64 = base64.b64encode(csv.encode()).decode()
-    return f'<a href="data:file/csv;base64,{b64}" download="{filename}">Click here to download</a>'
-
-
-# ==============================================================================
-# 3. UI RENDERING - PAGE COMPONENTS
-# ==============================================================================
-
-# ------------------------------------------------------------------------------
-# 3.1. HOME / UPLOAD PAGE
-# ------------------------------------------------------------------------------
+# ---------------------------------- 5.1 HOME / UPLOAD PAGE --------------------------------------
 def render_home_page():
-    """
-    Renders the content for the Home page, primarily handling file uploads.
-    """
-    st.title("🚀 Comprehensive CSV Data Cleaner")
+    """Renders the initial landing page for file upload and instructions."""
+    st.title(f"{APP_ICON} {APP_TITLE}")
     st.markdown("""
-    Welcome to the ultimate data cleaning tool! This application is designed to
-    help you systematically clean and prepare your CSV data for analysis.
+    Welcome to your one-stop solution for data cleaning! This powerful and robust tool,
+    built with Streamlit, allows you to systematically clean, preprocess, and prepare your
+    CSV data for analysis or machine learning.
 
-    **Follow these steps to get started:**
-
-    1.  **Upload your CSV file** using the uploader below.
-    2.  Use the **navigation sidebar** on the left to move between cleaning tasks.
-    3.  Each action you take will update the dataset in real-time.
-    4.  Once you're satisfied, navigate to the **Download** page to get your cleaned file.
-
-    Let's begin!
+    **How to use this application:**
+    1.  **Upload Your Data**: Use the file uploader below to load your CSV file. Try the advanced options if you encounter encoding errors.
+    2.  **Navigate & Clean**: Use the sidebar on the left to navigate through different cleaning modules.
+    3.  **Track Your Progress**: The 'Action History' page keeps a log of all transformations you apply.
+    4.  **Download**: Once satisfied, proceed to the 'Download & Export' page to get your cleaned data.
     """)
+
     st.subheader("1. Upload Your CSV File")
 
-    uploaded_file = st.file_uploader(
-        "Choose a CSV file",
-        type="csv",
-        key=f"file_uploader_{st.session_state.file_uploader_key}",
-        help="Upload a CSV file to begin the cleaning process."
-    )
+    with st.expander("Upload Options", expanded=True):
+        uploaded_file = st.file_uploader(
+            "Choose a CSV file",
+            type="csv",
+            key=f"file_uploader_{st.session_state.file_uploader_key}",
+            help="Upload a CSV file to begin the cleaning process."
+        )
+        st.markdown("---")
+        st.subheader("Advanced Options")
+        col1, col2 = st.columns(2)
+        with col1:
+            separator = st.text_input("Column Separator (e.g., ',' or ';')", value=",")
+        with col2:
+            encoding = st.selectbox("File Encoding", ["utf-8", "latin1", "iso-8859-1", "cp1252"])
 
     if uploaded_file is not None:
         try:
-            # Process the uploaded file
-            df = pd.read_csv(uploaded_file)
+            df = pd.read_csv(uploaded_file, sep=separator, encoding=encoding)
             st.session_state.df_original = df.copy()
             st.session_state.df = df.copy()
             st.session_state.file_uploaded = True
-            st.success("File uploaded successfully! A preview is shown below.")
-            st.write("### Quick Preview of Your Data")
-            st.dataframe(st.session_state.df.head())
-            st.info("You can now use the sidebar to navigate to different cleaning modules.")
-
+            st.session_state.file_name = uploaded_file.name
+            log_action(f"File '{uploaded_file.name}' loaded successfully. Shape: {df.shape}")
+            st.success("File uploaded and processed successfully!")
+            st.rerun() # Rerun to move to the next logical view
         except Exception as e:
-            st.error(f"An error occurred while reading the file: {e}")
-            st.warning("Please ensure the file is a valid CSV and try again.")
+            st.error(f"Error reading file: {e}")
+            st.warning("Please check the separator, encoding, or file integrity.")
             st.session_state.file_uploaded = False
 
-    elif st.session_state.file_uploaded:
-        st.info("A file is already loaded. Use the sidebar to start cleaning.")
-        st.write("### Quick Preview of Loaded Data")
+    if st.session_state.file_uploaded:
+        st.subheader("2. Quick Inspection")
+        st.info(f"File **'{st.session_state.file_name}'** is loaded. Shape: **{st.session_state.df.shape}**. Use the sidebar to start cleaning.")
         st.dataframe(st.session_state.df.head())
 
+# ---------------------------------- 5.2 DATA PROFILING PAGE -------------------------------------
+def render_profiling_page():
+    """Renders the data profiling page with detailed statistics and info."""
+    st.header("📊 Data Profiling & Overview")
+    st.markdown("Get a deep understanding of your dataset's structure, types, and statistics.")
 
-# ------------------------------------------------------------------------------
-# 3.2. DATA OVERVIEW PAGE
-# ------------------------------------------------------------------------------
-def render_overview_page():
-    """
-    Renders the Data Overview page, showing detailed information about the
-    loaded DataFrame.
-    """
-    st.title("📊 Data Overview")
-    st.markdown("Get a high-level summary of your dataset. This helps in understanding the structure, data types, and basic statistics of your data before cleaning.")
+    if st.session_state.df is None:
+        st.warning("Please upload a file first on the Home page.")
+        return
 
     df = st.session_state.df
 
-    with st.expander("▶️ DataFrame Head", expanded=True):
-        st.write("Displaying the first 5 rows of your data.")
-        st.dataframe(df.head())
+    # Create tabs for different profiling views
+    tab1, tab2, tab3, tab4 = st.tabs(["DataFrame Info", "Statistical Summary", "Value Counts", "Column Correlations"])
 
-    with st.expander("◀️ DataFrame Tail"):
-        st.write("Displaying the last 5 rows of your data.")
-        st.dataframe(df.tail())
-
-    with st.expander("ℹ️ DataFrame Info"):
-        st.write("A concise summary of the DataFrame, including data types and non-null values.")
+    with tab1:
+        st.subheader("DataFrame Structure and Memory")
         info_str = get_dataframe_info(df)
         st.text(info_str)
 
-    with st.expander("🔢 DataFrame Description (Statistics)"):
-        st.write("Descriptive statistics for all numeric columns in your dataset.")
-        st.dataframe(df.describe())
+    with tab2:
+        st.subheader("Descriptive Statistics")
+        st.markdown("Summary statistics for all numeric columns in your dataset.")
+        # Defensive check for numeric columns
+        if not get_numeric_columns(df):
+            st.info("No numeric columns found in the dataset to describe.")
+        else:
+            st.dataframe(df.describe(include=np.number))
 
-    with st.expander("📋 Value Counts for Categorical Columns"):
-        st.write("See the distribution of values in your categorical columns.")
+        st.markdown("Summary statistics for all non-numeric columns.")
+        # Defensive check for categorical columns
+        if not get_categorical_columns(df):
+            st.info("No categorical/object columns found to describe.")
+        else:
+            st.dataframe(df.describe(include=['object', 'category']))
+
+    with tab3:
+        st.subheader("Categorical Column Value Counts")
         categorical_cols = get_categorical_columns(df)
-        if categorical_cols:
+        if not categorical_cols:
+            st.info("No categorical columns found to analyze value counts.")
+        else:
             selected_col = st.selectbox(
-                "Select a categorical column to see its value counts:",
+                "Select a column to view its value distribution:",
                 options=categorical_cols,
-                help="Choose a column to inspect the frequency of each unique value."
+                help="Choose a column to see the frequency of each unique value."
             )
             if selected_col:
-                value_counts = df[selected_col].value_counts().reset_index()
-                value_counts.columns = [selected_col, 'Count']
-                st.dataframe(value_counts)
-
-                # Optional: Add a bar chart for visualization
+                value_counts_df = df[selected_col].value_counts().reset_index()
+                value_counts_df.columns = [selected_col, 'Count']
+                st.dataframe(value_counts_df)
                 if st.checkbox(f"Show bar chart for '{selected_col}'?"):
-                    try:
-                        fig = px.bar(value_counts, x=selected_col, y='Count',
-                                     title=f"Value Counts for {selected_col}")
-                        st.plotly_chart(fig, use_container_width=True)
-                    except Exception as e:
-                        st.warning(f"Could not generate plot: {e}")
-        else:
-            st.info("No categorical columns found in the dataset.")
+                    fig = px.bar(value_counts_df, x=selected_col, y='Count', title=f"Value Counts for {selected_col}")
+                    st.plotly_chart(fig, use_container_width=True)
 
-# ------------------------------------------------------------------------------
-# 3.3. MISSING VALUE HANDLING PAGE
-# ------------------------------------------------------------------------------
+    with tab4:
+        st.subheader("Numeric Column Correlation Analysis")
+        numeric_cols = get_numeric_columns(df)
+        if len(numeric_cols) < 2:
+            st.info("You need at least two numeric columns to compute a correlation matrix.")
+        else:
+            st.markdown("A heatmap showing the Pearson correlation between numeric variables. Values close to 1 or -1 indicate a strong linear relationship.")
+            corr_matrix = df[numeric_cols].corr()
+            fig, ax = plt.subplots(figsize=(12, 8))
+            sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', fmt=".2f", ax=ax)
+            st.pyplot(fig)
+
+
+# ---------------------------------- 5.3 MISSING VALUES PAGE -------------------------------------
 def render_missing_values_page():
-    """
-    Renders the page for analyzing and handling missing values.
-    Provides options for visualization, dropping, and imputing.
-    """
-    st.title("❓ Missing Value Handling")
-    st.markdown("Identify, visualize, and handle missing values (NaNs) in your dataset. Missing data can significantly impact analysis and model performance.")
+    """Renders the page for handling missing values (NaNs)."""
+    st.header("❓ Missing Value Manager")
+    st.markdown("Analyze, visualize, and handle missing data in your dataset.")
+
+    if st.session_state.df is None:
+        st.warning("Please upload a file first.")
+        return
 
     df = st.session_state.df
     missing_data = df.isnull().sum()
-    missing_data = missing_data[missing_data > 0]
+    missing_data_percent = (df.isnull().sum() / len(df)) * 100
+    missing_df = pd.DataFrame({'Missing Values': missing_data, 'Percentage (%)': missing_data_percent})
+    missing_df = missing_df[missing_df['Missing Values'] > 0].sort_values(by='Missing Values', ascending=False)
 
-    if missing_data.empty:
-        st.success("🎉 Congratulations! No missing values found in your dataset.")
+    if missing_df.empty:
+        st.success("🎉 Excellent! No missing values found in your dataset.")
         return
 
     st.subheader("1. Missing Value Analysis")
-    st.write("The following table and chart show the number of missing values per column.")
-
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns([1, 2])
     with col1:
-        st.write("#### Missing Values per Column")
-        st.dataframe(missing_data.rename("Number of Missing Values"))
-
+        st.dataframe(missing_df)
     with col2:
-        st.write("#### Missing Value Heatmap")
-        fig, ax = plt.subplots(figsize=(10, 6))
+        st.markdown("#### Heatmap of Missing Values")
+        fig, ax = plt.subplots()
         sns.heatmap(df.isnull(), cbar=False, cmap='viridis', yticklabels=False, ax=ax)
-        ax.set_title("Heatmap of Missing Values")
         st.pyplot(fig)
 
     st.markdown("---")
     st.subheader("2. Handle Missing Values")
 
-    # --- Option 1: Dropping Missing Values ---
-    with st.expander("🚮 Option 1: Drop Missing Values"):
-        st.write("Remove rows or columns containing missing values.")
-        drop_option = st.radio(
-            "How do you want to drop NaNs?",
-            ('Drop rows with any missing values', 'Drop columns with any missing values'),
-            key='drop_option'
-        )
+    with st.expander("🚮 Option A: Drop Missing Values"):
+        st.markdown("Permanently remove rows or columns containing missing values.")
+        drop_choice = st.radio("Select drop method:", ["Drop rows with any NaNs", "Drop columns with any NaNs", "Drop columns based on a threshold"])
+        
+        if drop_choice == "Drop columns based on a threshold":
+            threshold = st.slider("Percentage of missing values threshold", 0, 100, 50)
+            if st.button("Drop Columns by Threshold"):
+                cols_to_drop = missing_df[missing_df['Percentage (%)'] > threshold].index.tolist()
+                if not cols_to_drop:
+                    st.warning("No columns met the threshold to be dropped.")
+                else:
+                    st.session_state.df.drop(columns=cols_to_drop, inplace=True)
+                    log_action(f"Dropped columns with >{threshold}% missing values: {', '.join(cols_to_drop)}", f"df.drop(columns={cols_to_drop}, inplace=True)")
+                    st.rerun()
 
-        if st.button("Apply Drop Operation", key='drop_button'):
-            df_before_shape = df.shape
-            if drop_option == 'Drop rows with any missing values':
-                st.session_state.df = df.dropna(axis=0)
-                st.success(f"Successfully dropped rows with missing values. Shape changed from {df_before_shape} to {st.session_state.df.shape}.")
-            else: # Drop columns
-                st.session_state.df = df.dropna(axis=1)
-                st.success(f"Successfully dropped columns with missing values. Shape changed from {df_before_shape} to {st.session_state.df.shape}.")
+        elif st.button("Apply Drop Operation"):
+            if drop_choice == "Drop rows with any NaNs":
+                st.session_state.df.dropna(axis=0, inplace=True)
+                log_action("Dropped rows with any missing values.", "df.dropna(axis=0, inplace=True)")
+            else: # Drop columns with any NaNs
+                st.session_state.df.dropna(axis=1, inplace=True)
+                log_action("Dropped columns with any missing values.", "df.dropna(axis=1, inplace=True)")
+            st.rerun()
 
-            st.rerun() # Rerun to update the page with new state
-
-    # --- Option 2: Imputing Missing Values ---
-    with st.expander("✍️ Option 2: Fill (Impute) Missing Values"):
-        st.write("Replace missing values with a calculated or specified value.")
-        impute_cols = missing_data.index.tolist()
-        selected_col_impute = st.selectbox(
-            "Select a column to impute:",
-            options=impute_cols,
-            help="Choose the column where you want to fill missing values."
-        )
-
+    with st.expander("✍️ Option B: Impute (Fill) Missing Values"):
+        st.markdown("Replace missing values with a calculated or constant value.")
+        impute_cols = missing_df.index.tolist()
+        selected_col_impute = st.selectbox("Select column to impute:", impute_cols)
+        
         if selected_col_impute:
-            imputation_method = st.selectbox(
-                f"Select imputation method for '{selected_col_impute}':",
-                ('Mean', 'Median', 'Mode', 'Custom Value'),
-                help="""
-                - **Mean**: Fills with the average value (for numeric columns).
-                - **Median**: Fills with the middle value (for numeric columns).
-                - **Mode**: Fills with the most frequent value (for all column types).
-                - **Custom Value**: Fills with a value you specify.
-                """
-            )
+            col_type = df[selected_col_impute].dtype
+            impute_methods = ['Mode', 'Custom Value']
+            if pd.api.types.is_numeric_dtype(col_type):
+                impute_methods = ['Mean', 'Median', 'Mode', 'Interpolate', 'Custom Value']
+            
+            imputation_method = st.selectbox("Select imputation method:", impute_methods)
             custom_value = None
             if imputation_method == 'Custom Value':
-                custom_value = st.text_input("Enter the custom value to fill with:")
+                custom_value = st.text_input("Enter custom value:")
 
-            if st.button("Apply Imputation", key='impute_button'):
+            if st.button("Apply Imputation"):
                 try:
                     fill_value = None
+                    code_snippet = ""
                     if imputation_method == 'Mean':
                         fill_value = df[selected_col_impute].mean()
+                        code_snippet = f"df['{selected_col_impute}'].fillna(df['{selected_col_impute}'].mean(), inplace=True)"
                     elif imputation_method == 'Median':
                         fill_value = df[selected_col_impute].median()
+                        code_snippet = f"df['{selected_col_impute}'].fillna(df['{selected_col_impute}'].median(), inplace=True)"
                     elif imputation_method == 'Mode':
                         fill_value = df[selected_col_impute].mode()[0]
+                        code_snippet = f"df['{selected_col_impute}'].fillna(df['{selected_col_impute}'].mode()[0], inplace=True)"
                     elif imputation_method == 'Custom Value':
-                        # Attempt to cast custom value to the column's type
-                        col_type = df[selected_col_impute].dtype
-                        try:
-                            fill_value = pd.Series([custom_value]).astype(col_type).iloc[0]
-                        except Exception:
-                           st.warning(f"Could not convert '{custom_value}' to type {col_type}. Using it as a string.")
-                           fill_value = custom_value
-
+                        fill_value = custom_value
+                        code_snippet = f"df['{selected_col_impute}'].fillna('{custom_value}', inplace=True)"
+                    elif imputation_method == 'Interpolate':
+                        st.session_state.df[selected_col_impute].interpolate(method='linear', inplace=True)
+                        log_action(f"Interpolated missing values in '{selected_col_impute}'.", f"df['{selected_col_impute}'].interpolate(method='linear', inplace=True)")
+                        st.rerun()
+                        
                     if fill_value is not None:
-                        st.session_state.df[selected_col_impute] = df[selected_col_impute].fillna(fill_value)
-                        st.success(f"Successfully imputed missing values in '{selected_col_impute}' with '{fill_value}'.")
-                        st.rerun() # Rerun to update the page state
-                    else:
-                        st.error("Could not determine a value for imputation. Please check your inputs.")
-
-                except TypeError as te:
-                    st.error(f"A type error occurred: {te}. The selected method might not be applicable for this column's data type (e.g., 'Mean' on a text column).")
+                        st.session_state.df[selected_col_impute].fillna(fill_value, inplace=True)
+                        log_action(f"Imputed '{selected_col_impute}' with {imputation_method}: '{fill_value}'.", code_snippet)
+                        st.rerun()
                 except Exception as e:
-                    st.error(f"An error occurred during imputation: {e}")
+                    st.error(f"Imputation failed: {e}. Check if method is compatible with column type.")
 
-
-# ------------------------------------------------------------------------------
-# 3.4. COLUMN MANAGEMENT PAGE
-# ------------------------------------------------------------------------------
+# ---------------------------------- 5.4 COLUMN MANAGEMENT PAGE ----------------------------------
 def render_column_management_page():
-    """
-    Renders the page for managing columns: dropping, renaming, and changing types.
-    """
-    st.title("🏛️ Column Management")
-    st.markdown("Perform essential column-level operations like dropping, renaming, or changing data types.")
+    """Renders page for dropping, renaming, reordering, and type-casting columns."""
+    st.header("🏛️ Column Operations")
+    st.markdown("Perform column-level operations like dropping, renaming, or changing data types.")
+    
+    if st.session_state.df is None:
+        st.warning("Please upload a file first.")
+        return
 
     df = st.session_state.df
     all_cols = df.columns.tolist()
 
-    # --- Section 1: Drop Columns ---
-    st.subheader("1. Drop Columns")
-    with st.expander("Select columns to drop", expanded=True):
+    tab1, tab2, tab3 = st.tabs(["Drop Columns", "Rename Column", "Change Column Type"])
+
+    with tab1:
+        st.subheader("Drop Unnecessary Columns")
         cols_to_drop = st.multiselect(
-            "Select one or more columns to permanently remove from the dataset:",
+            "Select columns to remove:",
             options=all_cols,
-            help="Be careful, this action cannot be undone without resetting the app."
+            help="This action is irreversible without resetting the app."
         )
         if st.button("Drop Selected Columns", type="primary"):
-            if cols_to_drop:
-                st.session_state.df = df.drop(columns=cols_to_drop)
-                st.success(f"Successfully dropped columns: {', '.join(cols_to_drop)}")
-                st.rerun()
-            else:
+            if not cols_to_drop:
                 st.warning("Please select at least one column to drop.")
-
-    st.markdown("---")
-
-    # --- Section 2: Rename Columns ---
-    st.subheader("2. Rename a Column")
-    with st.expander("Select a column to rename"):
-        col1, col2 = st.columns(2)
-        with col1:
-            col_to_rename = st.selectbox(
-                "Select a column:",
-                options=all_cols,
-                key='rename_select'
-            )
-        with col2:
-            new_col_name = st.text_input(
-                "Enter the new name:",
-                value=col_to_rename
-            )
-
-        if st.button("Rename Column"):
-            if col_to_rename and new_col_name:
-                if new_col_name in df.columns and new_col_name != col_to_rename:
-                    st.error(f"A column named '{new_col_name}' already exists.")
-                else:
-                    st.session_state.df = df.rename(columns={col_to_rename: new_col_name})
-                    st.success(f"Renamed column '{col_to_rename}' to '{new_col_name}'.")
-                    st.rerun()
             else:
-                st.warning("Please select a column and provide a new name.")
+                st.session_state.df.drop(columns=cols_to_drop, inplace=True)
+                log_action(f"Dropped columns: {', '.join(cols_to_drop)}", f"df.drop(columns={cols_to_drop}, inplace=True)")
+                st.rerun()
 
-    st.markdown("---")
-
-    # --- Section 3: Change Column Data Type ---
-    st.subheader("3. Change Column Data Type")
-    with st.expander("Select a column and a new data type"):
+    with tab2:
+        st.subheader("Rename a Column")
         col1, col2 = st.columns(2)
         with col1:
-            col_to_change_type = st.selectbox(
-                "Select a column:",
-                options=all_cols,
-                key='type_change_select'
-            )
-
+            col_to_rename = st.selectbox("Select a column to rename:", options=all_cols, key="rename_select")
         with col2:
-            new_type = st.selectbox(
-                "Select the new data type:",
-                ['object (string)', 'int64', 'float64', 'datetime64[ns]', 'category', 'bool']
-            )
+            new_col_name = st.text_input("Enter the new column name:", value=col_to_rename)
+        
+        if st.button("Rename Column"):
+            if not new_col_name:
+                st.error("New column name cannot be empty.")
+            elif new_col_name in df.columns and new_col_name != col_to_rename:
+                st.error(f"A column named '{new_col_name}' already exists.")
+            else:
+                st.session_state.df.rename(columns={col_to_rename: new_col_name}, inplace=True)
+                log_action(f"Renamed column '{col_to_rename}' to '{new_col_name}'.", f"df.rename(columns={{'{col_to_rename}': '{new_col_name}'}}, inplace=True)")
+                st.rerun()
 
-        if st.button("Change Data Type"):
-            if col_to_change_type and new_type:
-                try:
-                    df_copy = df.copy() # Work on a copy to report errors
-                    original_non_nulls = df_copy[col_to_change_type].notnull().sum()
-
-                    if new_type == 'datetime64[ns]':
-                        df_copy[col_to_change_type] = pd.to_datetime(df_copy[col_to_change_type], errors='coerce')
+    with tab3:
+        st.subheader("Change Column Data Type")
+        st.markdown("Change the data type of a column. Be cautious, as this can lead to data loss or errors if the conversion is not possible.")
+        col1, col2 = st.columns(2)
+        with col1:
+            col_to_change = st.selectbox("Select column:", options=all_cols, key="type_change_select")
+        with col2:
+            new_type = st.selectbox("Select new data type:", ['object (string)', 'int64', 'float64', 'datetime64[ns]', 'category', 'bool'])
+        
+        if st.button("Apply Type Change"):
+            try:
+                original_type = df[col_to_change].dtype
+                current_nulls = df[col_to_change].isnull().sum()
+                
+                # Use a copy for safe conversion
+                temp_series = df[col_to_change].copy()
+                if new_type == 'datetime64[ns]':
+                    temp_series = pd.to_datetime(temp_series, errors='coerce')
+                else:
+                    # For bool, be specific about conversion
+                    if new_type == 'bool' and pd.api.types.is_object_dtype(temp_series):
+                        # A simple mapping for common true/false strings
+                        true_vals = ['true', 't', 'yes', 'y', '1']
+                        temp_series = temp_series.str.lower().isin(true_vals)
                     else:
-                        df_copy[col_to_change_type] = df_copy[col_to_change_type].astype(new_type, errors='ignore')
+                        temp_series = temp_series.astype(new_type, errors='raise')
 
-                    st.session_state.df[col_to_change_type] = df_copy[col_to_change_type]
+                # Check for new NaNs created by coercion
+                new_nulls = temp_series.isnull().sum()
+                nan_diff = new_nulls - current_nulls
+                
+                st.session_state.df[col_to_change] = temp_series
+                log_action(f"Changed type of '{col_to_change}' from {original_type} to {new_type}.", f"df['{col_to_change}'] = df['{col_to_change}'].astype('{new_type}')")
+                
+                if nan_diff > 0:
+                    st.warning(f"Warning: {nan_diff} values could not be converted and were set to Null/NaN.")
+                
+                st.rerun()
 
-                    # Check for new NaNs created by coercion
-                    new_nans = df_copy[col_to_change_type].isnull().sum() - df[col_to_change_type].isnull().sum()
+            except (ValueError, TypeError) as e:
+                st.error(f"Conversion failed for column '{col_to_change}' to type '{new_type}'. Error: {e}")
+            except Exception as e:
+                st.error(f"An unexpected error occurred: {e}")
 
-                    st.success(f"Successfully changed data type of '{col_to_change_type}' to '{new_type}'.")
-                    if new_nans > 0:
-                        st.warning(f"Warning: {new_nans} values could not be converted and were set to NaN (Not a Number).")
-
-                    st.rerun()
-
-                except ValueError as ve:
-                    st.error(f"ValueError: Could not convert column '{col_to_change_type}' to '{new_type}'. Check if all values in the column are compatible. Error: {ve}")
-                except Exception as e:
-                    st.error(f"An unexpected error occurred: {e}")
-
-
-# ------------------------------------------------------------------------------
-# 3.5. DUPLICATE HANDLING PAGE
-# ------------------------------------------------------------------------------
-def render_duplicates_page():
-    """
-    Renders the page for identifying and removing duplicate records.
-    """
-    st.title("📑 Duplicate Record Handling")
-    st.markdown("Find and remove duplicate rows from your dataset. Duplicates can skew analysis and machine learning model training.")
-
+# ---------------------------------- 5.5 DUPLICATE HANDLING PAGE ---------------------------------
+def render_duplicate_handling_page():
+    """Renders the page for identifying and removing duplicate records."""
+    st.header("📑 Row & Duplicate Manager")
+    
+    if st.session_state.df is None:
+        st.warning("Please upload a file first.")
+        return
+        
     df = st.session_state.df
-    duplicates = df[df.duplicated(keep=False)]
+    
+    tab1, tab2 = st.tabs(["Duplicate Rows", "Filter Rows"])
 
-    st.subheader("1. Identify Duplicates")
-    if duplicates.empty:
-        st.success("🎉 No duplicate rows found in the dataset.")
-    else:
-        st.warning(f"Found {len(duplicates)} rows that are part of a duplicate set. A preview is shown below.")
-        st.dataframe(duplicates.sort_values(by=df.columns.tolist()))
+    with tab1:
+        st.subheader("Handle Duplicate Rows")
+        st.markdown("Find and remove duplicate rows from your dataset. Duplicates can skew analysis and machine learning model training.")
+        
+        duplicates = df[df.duplicated(keep=False)]
+        num_duplicates_to_remove = df.duplicated().sum()
 
-        st.markdown("---")
-        st.subheader("2. Remove Duplicates")
-        st.write(f"There are **{df.duplicated().sum()}** duplicate rows that can be removed (keeping the first occurrence).")
-        if st.button("Remove Duplicate Rows", type="primary"):
-            df_before_shape = df.shape
-            st.session_state.df = df.drop_duplicates(keep='first').reset_index(drop=True)
-            df_after_shape = st.session_state.df.shape
-            st.success(f"Successfully removed {df_before_shape[0] - df_after_shape[0]} duplicate rows.")
-            st.info(f"DataFrame shape changed from {df_before_shape} to {df_after_shape}.")
-            st.rerun()
+        if duplicates.empty:
+            st.success("🎉 No duplicate rows found in the dataset.")
+        else:
+            st.warning(f"Found **{num_duplicates_to_remove}** duplicate rows (a total of {len(duplicates)} rows are part of a duplicate set).")
+            st.dataframe(duplicates.sort_values(by=df.columns.tolist()))
+            
+            if st.button("Remove Duplicate Rows (keep first)", type="primary"):
+                st.session_state.df.drop_duplicates(keep='first', inplace=True)
+                log_action(f"Removed {num_duplicates_to_remove} duplicate rows.", "df.drop_duplicates(keep='first', inplace=True)")
+                st.rerun()
 
+    with tab2:
+        st.subheader("Filter Rows with a Custom Query")
+        st.markdown("Filter your dataset using pandas' powerful `query` syntax. This is useful for isolating subsets of your data for closer inspection.")
+        st.info("""
+        **Query Examples:**
+        - Numeric: `Age > 30` or `Salary >= 50000`
+        - String: `Country == "USA"` or `Name.str.contains("John", na=False)`
+        - Combined: `Age > 30 and Country != "Canada"`
+        
+        Note: Column names with spaces or special characters must be enclosed in backticks (e.g., \`Column Name\`).
+        """)
 
-# ------------------------------------------------------------------------------
-# 3.6. OUTLIER HANDLING PAGE
-# ------------------------------------------------------------------------------
+        query_string = st.text_area("Enter your pandas query string:", height=100)
+        
+        if st.button("Apply Filter"):
+            if not query_string:
+                st.warning("Please enter a query string.")
+            else:
+                try:
+                    df_before_shape = df.shape
+                    filtered_df = df.query(query_string)
+                    rows_removed = df_before_shape[0] - filtered_df.shape[0]
+                    st.session_state.df = filtered_df
+                    log_action(f"Applied filter query: '{query_string}'. Removed {rows_removed} rows.", f"df = df.query('{query_string}')")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Invalid query: {e}")
+                    st.warning("Please check your syntax and column names.")
+
+# ---------------------------------- 5.6 OUTLIER HANDLING PAGE -----------------------------------
 def render_outlier_page():
-    """
-    Renders the page for outlier detection and removal using statistical methods.
-    """
-    st.title("📈 Outlier Handling")
-    st.markdown("""
-    Outliers are data points that differ significantly from other observations. They can be caused by measurement errors or represent genuine, but rare, variance in the data. This page helps you detect and remove them.
-    """)
-
+    """Renders page for outlier detection and removal."""
+    st.header("📈 Outlier Detection & Handling")
+    st.markdown("Identify and manage outliers, which are data points that significantly differ from other observations.")
+    
+    if st.session_state.df is None:
+        st.warning("Please upload a file first.")
+        return
+        
     df = st.session_state.df
     numeric_cols = get_numeric_columns(df)
 
     if not numeric_cols:
-        st.warning("No numeric columns found. Outlier detection requires numeric data.")
+        st.info("No numeric columns found for outlier detection.")
         return
 
-    st.subheader("1. Select Column and Method")
     col1, col2 = st.columns(2)
     with col1:
-        selected_col_outlier = st.selectbox(
-            "Select a numeric column for outlier analysis:",
-            options=numeric_cols
-        )
+        selected_col = st.selectbox("Select a numeric column:", numeric_cols)
     with col2:
-        outlier_method = st.selectbox(
-            "Select outlier detection method:",
-            ("Inter-Quartile Range (IQR)", "Z-Score")
-        )
+        method = st.selectbox("Select detection method:", ["Inter-Quartile Range (IQR)", "Z-Score"])
 
-    # --- Method Explanations ---
-    if outlier_method == "Inter-Quartile Range (IQR)":
-        st.info("""
-        **IQR Method:** An outlier is a data point that falls outside the 1.5 * IQR range.
-        - **IQR** = Q3 (75th percentile) - Q1 (25th percentile).
-        - **Lower Bound** = Q1 - 1.5 * IQR
-        - **Upper Bound** = Q3 + 1.5 * IQR
-        This method is robust to outliers themselves.
-        """)
-        multiplier = st.slider("IQR Multiplier:", min_value=1.0, max_value=3.0, value=1.5, step=0.1, help="A higher multiplier is more lenient and keeps more data.")
-    else: # Z-Score
-        st.info("""
-        **Z-Score Method:** An outlier is a data point with a Z-score greater than a certain threshold.
-        - **Z-Score** = (Data Point - Mean) / Standard Deviation
-        - It measures how many standard deviations a data point is from the mean.
-        This method is sensitive to outliers as they influence the mean and std dev.
-        """)
-        threshold = st.slider("Z-Score Threshold:", min_value=1.0, max_value=5.0, value=3.0, step=0.1, help="A higher threshold is more lenient. 3 is a common choice.")
+    # --- Visualization ---
+    st.subheader("1. Visualize Distribution")
+    fig = px.box(df, y=selected_col, title=f"Box Plot for '{selected_col}'", points="all")
+    st.plotly_chart(fig, use_container_width=True)
 
-    st.markdown("---")
-    st.subheader("2. Visualize and Remove Outliers")
-
-    if selected_col_outlier:
-        # --- Visualization ---
-        st.write(f"#### Box Plot for '{selected_col_outlier}'")
-        st.write("This plot helps visualize the distribution and identify potential outliers.")
-        fig = px.box(df, y=selected_col_outlier, title=f"Distribution of '{selected_col_outlier}' Before Outlier Removal")
-        st.plotly_chart(fig, use_container_width=True)
-
-        # --- Detection and Removal ---
-        if st.button(f"Remove Outliers from '{selected_col_outlier}'", type="primary"):
-            df_before_shape = df.shape
-            outliers_removed_count = 0
-
-            if outlier_method == "Inter-Quartile Range (IQR)":
-                Q1 = df[selected_col_outlier].quantile(0.25)
-                Q3 = df[selected_col_outlier].quantile(0.75)
-                IQR = Q3 - Q1
-                lower_bound = Q1 - multiplier * IQR
-                upper_bound = Q3 + multiplier * IQR
-
-                df_cleaned = df[(df[selected_col_outlier] >= lower_bound) & (df[selected_col_outlier] <= upper_bound)]
-                outliers_removed_count = df.shape[0] - df_cleaned.shape[0]
-                st.session_state.df = df_cleaned
-
-            else: # Z-Score
-                from scipy.stats import zscore
-                df_copy = df.copy()
-                df_copy['zscore'] = zscore(df_copy[selected_col_outlier].dropna())
-                df_cleaned = df_copy[df_copy['zscore'].abs() <= threshold].drop(columns=['zscore'])
-                outliers_removed_count = df.shape[0] - df_cleaned.shape[0]
-                st.session_state.df = df_cleaned
-
-
-            st.success(f"Removed {outliers_removed_count} outliers from '{selected_col_outlier}'.")
-            st.info(f"DataFrame shape changed from {df_before_shape} to {st.session_state.df.shape}.")
-
-            st.write(f"#### Box Plot for '{selected_col_outlier}' After Removal")
-            fig_after = px.box(st.session_state.df, y=selected_col_outlier, title=f"Distribution of '{selected_col_outlier}' After Outlier Removal")
-            st.plotly_chart(fig_after, use_container_width=True)
-            
-            # Use st.rerun() carefully, only if necessary to fully reset the view
-            # In this case, showing the 'after' plot is better before a full rerun.
-            st.button("Confirm and Refresh Page")
-
-
-# ------------------------------------------------------------------------------
-# 3.7. TEXT CLEANING PAGE
-# ------------------------------------------------------------------------------
-def render_text_cleaning_page():
-    """
-    Renders the page for performing common text cleaning operations.
-    """
-    st.title("🔡 Text Data Cleaning")
-    st.markdown("Clean your text (object/string) columns with a suite of common tools. This is crucial for natural language processing (NLP) tasks or standardizing categorical features.")
-
-    df = st.session_state.df
-    text_cols = get_categorical_columns(df)
-
-    if not text_cols:
-        st.warning("No text or categorical columns found to clean.")
-        return
-
-    selected_col_text = st.selectbox(
-        "Select a text column to clean:",
-        options=text_cols
-    )
-
-    if selected_col_text:
-        st.subheader(f"Cleaning options for '{selected_col_text}':")
-        # Ensure column is of string type for these operations
-        df[selected_col_text] = df[selected_col_text].astype(str)
-
-        cleaning_options = {
-            "to_lowercase": st.checkbox("Convert to Lowercase"),
-            "strip_whitespace": st.checkbox("Strip Leading/Trailing Whitespace"),
-            "remove_punctuation": st.checkbox("Remove Punctuation"),
-            "remove_stopwords": st.checkbox("Remove Common English Stopwords")
-        }
+    # --- Detection and Removal ---
+    st.subheader("2. Detect and Remove Outliers")
+    if method == "Inter-Quartile Range (IQR)":
+        st.markdown("This method defines outliers as data points that fall below `Q1 - 1.5*IQR` or above `Q3 + 1.5*IQR`.")
+        multiplier = st.slider("IQR Multiplier", 1.0, 3.0, 1.5, 0.1)
         
-        # Stopwords list for the feature
-        stopwords = [
-            'i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', 'your', 'yours',
-            'yourself', 'yourselves', 'he', 'him', 'his', 'himself', 'she', 'her', 'hers',
-            'herself', 'it', 'its', 'itself', 'they', 'them', 'their', 'theirs', 'themselves',
-            'what', 'which', 'who', 'whom', 'this', 'that', 'these', 'those', 'am', 'is', 'are',
-            'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'having', 'do', 'does',
-            'did', 'doing', 'a', 'an', 'the', 'and', 'but', 'if', 'or', 'because', 'as', 'until',
-            'while', 'of', 'at', 'by', 'for', 'with', 'about', 'against', 'between', 'into',
-            'through', 'during', 'before', 'after', 'above', 'below', 'to', 'from', 'up', 'down',
-            'in', 'out', 'on', 'off', 'over', 'under', 'again', 'further', 'then', 'once', 'here',
-            'there', 'when', 'where', 'why', 'how', 'all', 'any', 'both', 'each', 'few', 'more',
-            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so',
-            'than', 'too', 'very', 's', 't', 'can', 'will', 'just', 'don', 'should', 'now'
-        ]
-
-        if st.button("Apply Text Cleaning Operations", type="primary"):
-            cleaned_series = df[selected_col_text].copy()
-            if cleaning_options["to_lowercase"]:
-                cleaned_series = cleaned_series.str.lower()
-                st.write("✅ Converted to lowercase.")
-            if cleaning_options["strip_whitespace"]:
-                cleaned_series = cleaned_series.str.strip()
-                st.write("✅ Stripped whitespace.")
-            if cleaning_options["remove_punctuation"]:
-                cleaned_series = cleaned_series.str.replace(r'[^\w\s]', '', regex=True)
-                st.write("✅ Removed punctuation.")
-            if cleaning_options["remove_stopwords"]:
-                # This is a basic implementation. More advanced ones would use libraries like NLTK.
-                pat = r'\b(?:{})\b'.format('|'.join(stopwords))
-                cleaned_series = cleaned_series.str.replace(pat, '', regex=True).str.replace(r'\s+', ' ', regex=True).str.strip()
-                st.write("✅ Removed stopwords.")
-
-            st.session_state.df[selected_col_text] = cleaned_series
-            st.success(f"Text cleaning applied to column '{selected_col_text}'.")
-
-            st.subheader("Preview of Changes")
-            preview_df = pd.DataFrame({
-                'Original': df[selected_col_text].head(),
-                'Cleaned': st.session_state.df[selected_col_text].head()
-            })
-            st.dataframe(preview_df)
-
-
-# ------------------------------------------------------------------------------
-# 3.8. DATA FILTERING PAGE
-# ------------------------------------------------------------------------------
-def render_filtering_page():
-    """
-    Renders a page that allows the user to filter the DataFrame based on
-    conditions.
-    """
-    st.title("🔍 Data Filtering and Querying")
-    st.markdown("Filter your dataset based on specific conditions. This is useful for isolating subsets of your data for closer inspection or for creating a final dataset for a specific purpose.")
-
-    df = st.session_state.df
-    st.subheader("1. Build Your Filter")
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        filter_col = st.selectbox("Column to Filter On:", options=df.columns)
-    
-    # Dynamically select operator based on column type
-    if pd.api.types.is_numeric_dtype(df[filter_col]):
-        operators = ['==', '!=', '>', '<', '>=', '<=']
-    else: # String/Object/Category
-        operators = ['==', '!=', 'contains', 'not contains']
-
-    with col2:
-        operator = st.selectbox("Operator:", options=operators)
-
-    with col3:
-        # Use number_input for numeric types, text_input otherwise
-        if pd.api.types.is_numeric_dtype(df[filter_col]):
-            filter_value = st.number_input("Value:", value=0, format="%g")
-        else:
-            filter_value = st.text_input("Value:")
-
-    # Construct the pandas query string
-    try:
-        if pd.api.types.is_numeric_dtype(df[filter_col]):
-            query_string = f"`{filter_col}` {operator} {filter_value}"
-        elif operator in ['contains', 'not contains']:
-            # For string methods, query is a bit different
-            if operator == 'contains':
-                query_string = f"`{filter_col}`.str.contains('{filter_value}', na=False)"
-            else: # not contains
-                query_string = f"~`{filter_col}`.str.contains('{filter_value}', na=False)"
-        else: # String equality/inequality
-            query_string = f"`{filter_col}` {operator} '{filter_value}'"
-            
-        st.info(f"Generated Query: **{query_string}**")
+        Q1 = df[selected_col].quantile(0.25)
+        Q3 = df[selected_col].quantile(0.75)
+        IQR = Q3 - Q1
+        lower_bound = Q1 - multiplier * IQR
+        upper_bound = Q3 + multiplier * IQR
         
-        st.subheader("2. Apply Filter")
-        if st.button("Apply Filter to DataFrame", type="primary"):
-            try:
-                df_before_shape = df.shape
-                filtered_df = df.query(query_string)
-                st.session_state.df = filtered_df.reset_index(drop=True)
-                
-                st.success(f"Filter applied successfully. {df_before_shape[0] - filtered_df.shape[0]} rows were removed.")
-                st.info(f"DataFrame shape changed from {df_before_shape} to {st.session_state.df.shape}.")
+        outliers = df[(df[selected_col] < lower_bound) | (df[selected_col] > upper_bound)]
+        st.warning(f"Detected **{len(outliers)}** outliers in '{selected_col}' using the IQR method.")
+        
+        if not outliers.empty:
+            if st.checkbox("Show detected outliers?"):
+                st.dataframe(outliers)
+            
+            if st.button("Remove these outliers", type="primary"):
+                df_cleaned = df[(df[selected_col] >= lower_bound) & (df[selected_col] <= upper_bound)]
+                st.session_state.df = df_cleaned
+                log_action(f"Removed {len(outliers)} outliers from '{selected_col}' using IQR (multiplier={multiplier}).")
                 st.rerun()
 
-            except Exception as e:
-                st.error(f"Error applying filter: {e}")
-                st.warning("Please check your query. String values must often be quoted. This app tries to do it for you, but complex cases may fail.")
+    else: # Z-Score
+        st.markdown("This method defines outliers as data points with a Z-score (number of standard deviations from the mean) greater than a threshold.")
+        threshold = st.slider("Z-Score Threshold", 1.0, 5.0, 3.0, 0.1)
+        
+        from scipy.stats import zscore
+        z_scores = zscore(df[selected_col].dropna())
+        abs_z_scores = np.abs(z_scores)
+        
+        # We need to align the z-scores with the original dataframe index
+        outlier_indices = df[selected_col].dropna()[abs_z_scores > threshold].index
+        outliers = df.loc[outlier_indices]
+        
+        st.warning(f"Detected **{len(outliers)}** outliers in '{selected_col}' using Z-score (threshold={threshold}).")
 
-    except Exception as e:
-        st.error(f"Could not build filter. Error: {e}")
+        if not outliers.empty:
+            if st.checkbox("Show detected outliers?"):
+                st.dataframe(outliers)
+            
+            if st.button("Remove these outliers", type="primary"):
+                df_cleaned = df.drop(outlier_indices)
+                st.session_state.df = df_cleaned
+                log_action(f"Removed {len(outliers)} outliers from '{selected_col}' using Z-Score (threshold={threshold}).")
+                st.rerun()
 
-    st.subheader("Current DataFrame Preview")
-    st.dataframe(df.head())
+# ---------------------------------- 5.7 TRANSFORMATION PAGE -----------------------------------
+def render_transformation_page():
+    """Renders page for text cleaning, scaling, and date extraction."""
+    st.header("🔬 Data Transformation")
+    st.markdown("Apply common transformations to prepare your data for modeling or analysis.")
 
+    if st.session_state.df is None:
+        st.warning("Please upload a file first.")
+        return
 
-# ------------------------------------------------------------------------------
-# 3.9. DOWNLOAD PAGE
-# ------------------------------------------------------------------------------
+    df = st.session_state.df
+
+    tab1, tab2, tab3 = st.tabs(["🔡 Text Cleaning", "🔢 Numeric Scaling", "📅 Datetime Feature Extraction"])
+
+    with tab1:
+        st.subheader("Clean Text Columns")
+        text_cols = get_categorical_columns(df)
+        if not text_cols:
+            st.info("No text/categorical columns found.")
+        else:
+            selected_col = st.selectbox("Select a text column to clean:", text_cols, key="text_clean_col")
+            
+            with st.form("text_cleaning_form"):
+                to_lowercase = st.checkbox("Convert to lowercase")
+                strip_whitespace = st.checkbox("Strip leading/trailing whitespace")
+                remove_punctuation = st.checkbox("Remove punctuation (keeps letters, numbers, and spaces)")
+                
+                submitted = st.form_submit_button("Apply Text Cleaning")
+                if submitted:
+                    cleaned_series = df[selected_col].astype(str).copy()
+                    log_items = []
+                    
+                    if to_lowercase:
+                        cleaned_series = cleaned_series.str.lower()
+                        log_items.append("lowercase")
+                    if strip_whitespace:
+                        cleaned_series = cleaned_series.str.strip()
+                        log_items.append("strip whitespace")
+                    if remove_punctuation:
+                        cleaned_series = cleaned_series.str.replace(r'[^\w\s]', '', regex=True)
+                        log_items.append("remove punctuation")
+                        
+                    st.session_state.df[selected_col] = cleaned_series
+                    log_action(f"Applied text cleaning ({', '.join(log_items)}) to '{selected_col}'.")
+                    st.success(f"Text cleaning applied to '{selected_col}'.")
+                    st.dataframe(pd.DataFrame({
+                        "Original": df[selected_col].head(), 
+                        "Cleaned": st.session_state.df[selected_col].head()
+                    }))
+
+    with tab2:
+        st.subheader("Scale Numeric Columns")
+        st.markdown("Scale numeric features to be on a similar scale. This is often a requirement for machine learning algorithms.")
+        numeric_cols = get_numeric_columns(df)
+        if not numeric_cols:
+            st.info("No numeric columns found for scaling.")
+        else:
+            scaler_type = st.radio("Select Scaler Type:", ["Min-Max Scaler (to [0, 1])", "Standard Scaler (zero mean, unit variance)"])
+            cols_to_scale = st.multiselect("Select numeric columns to scale:", numeric_cols)
+            
+            if st.button("Apply Scaler"):
+                if not cols_to_scale:
+                    st.warning("Please select at least one column to scale.")
+                else:
+                    if scaler_type == "Min-Max Scaler (to [0, 1])":
+                        scaler = MinMaxScaler()
+                        scaler_name = "MinMaxScaler"
+                    else:
+                        scaler = StandardScaler()
+                        scaler_name = "StandardScaler"
+                        
+                    st.session_state.df[cols_to_scale] = scaler.fit_transform(st.session_state.df[cols_to_scale])
+                    log_action(f"Applied {scaler_name} to columns: {', '.join(cols_to_scale)}.")
+                    st.success(f"Scaling applied successfully. Preview of scaled columns:")
+                    st.dataframe(st.session_state.df[cols_to_scale].head())
+
+    with tab3:
+        st.subheader("Extract Features from Datetime Columns")
+        datetime_cols = get_datetime_columns(df)
+        if not datetime_cols:
+            st.info("No datetime columns found. You may need to change a column's type on the 'Column Operations' page first.")
+        else:
+            selected_col = st.selectbox("Select a datetime column:", datetime_cols, key="dt_col")
+            features_to_extract = st.multiselect(
+                "Select features to extract:",
+                ["Year", "Month", "Day", "Day of Week", "Hour", "Minute"]
+            )
+            
+            if st.button("Extract Datetime Features"):
+                if not features_to_extract:
+                    st.warning("Please select at least one feature to extract.")
+                else:
+                    for feature in features_to_extract:
+                        new_col_name = f"{selected_col}_{feature.lower().replace(' ', '_')}"
+                        if feature == "Year":
+                            st.session_state.df[new_col_name] = df[selected_col].dt.year
+                        elif feature == "Month":
+                            st.session_state.df[new_col_name] = df[selected_col].dt.month
+                        elif feature == "Day":
+                            st.session_state.df[new_col_name] = df[selected_col].dt.day
+                        elif feature == "Day of Week":
+                            st.session_state.df[new_col_name] = df[selected_col].dt.dayofweek
+                        elif feature == "Hour":
+                            st.session_state.df[new_col_name] = df[selected_col].dt.hour
+                        elif feature == "Minute":
+                            st.session_state.df[new_col_name] = df[selected_col].dt.minute
+                    
+                    log_action(f"Extracted datetime features ({', '.join(features_to_extract)}) from '{selected_col}'.")
+                    st.rerun()
+
+# ---------------------------------- 5.8 ACTION HISTORY PAGE -------------------------------------
+def render_history_page():
+    """Renders the page showing a log of all cleaning actions taken."""
+    st.header("📜 Action History")
+    st.markdown("A complete log of all cleaning and transformation steps applied to the dataset.")
+    
+    if not st.session_state.history:
+        st.info("No actions have been performed yet.")
+    else:
+        for i, action in enumerate(reversed(st.session_state.history)):
+            with st.expander(f"**Step {len(st.session_state.history) - i}:** {action['description']}"):
+                if action['code']:
+                    st.code(action['code'], language='python')
+                else:
+                    st.write("No code snippet available for this action.")
+
+# ---------------------------------- 5.9 DOWNLOAD PAGE -------------------------------------------
 def render_download_page():
-    """
-    Renders the final page for downloading the cleaned data.
-    """
-    st.title("📥 Download Cleaned Data")
-    st.markdown("Your data has been processed! You can now download the cleaned version as a new CSV file.")
+    """Renders the final page for downloading the cleaned data."""
+    st.header("📥 Download & Export")
+    st.markdown("Your data has been processed! Download the cleaned version as a new CSV file.")
     st.balloons()
-
+    
+    if st.session_state.df is None:
+        st.warning("No data available to download.")
+        return
+        
     df_cleaned = st.session_state.df
-
-    st.subheader("Final Preview of Cleaned Data")
+    st.subheader("Final Data Preview")
     st.dataframe(df_cleaned.head())
-    st.info(f"The cleaned dataset has **{df_cleaned.shape[0]} rows** and **{df_cleaned.shape[1]} columns**.")
+    st.info(f"The final dataset has **{df_cleaned.shape[0]} rows** and **{df_cleaned.shape[1]} columns**.")
 
     # --- Download Button ---
     csv = df_cleaned.to_csv(index=False).encode('utf-8')
+    suggested_filename = f"cleaned_{st.session_state.file_name}" if st.session_state.file_name else "cleaned_data.csv"
+    
     st.download_button(
         label="📥 Download Cleaned CSV",
         data=csv,
-        file_name="cleaned_data.csv",
+        file_name=suggested_filename,
         mime="text/csv",
         type="primary",
         help="Click to save the cleaned data to your local machine."
     )
 
-
-# ==============================================================================
-# 4. MAIN APPLICATION LOGIC
-# ==============================================================================
+# ==================================================================================================
+# 6. MAIN APPLICATION ORCHESTRATOR
+# ==================================================================================================
 
 def main():
     """
@@ -806,101 +763,67 @@ def main():
     """
     # --- Page Configuration ---
     st.set_page_config(
-        page_title="Pro CSV Cleaner",
-        page_icon="🧹",
+        page_title=APP_TITLE,
+        page_icon=APP_ICON,
         layout="wide",
         initial_sidebar_state="expanded",
     )
 
-    # --- Initialize Session State ---
+    # --- Initialize Session State (crucial for stability) ---
     initialize_session_state()
 
     # --- Sidebar Navigation ---
     with st.sidebar:
-        st.header("✨ Cleaning Workflow")
+        st.header("⚙️ Cleaning Workflow")
 
-        # Conditional Reset Button
-        if st.session_state.df is not None:
-            if st.button("↩️ Reset to Original", help="Revert all changes and start over with the original data."):
-                st.session_state.df = st.session_state.df_original.copy()
-                st.toast("DataFrame has been reset to its original state!", icon="✅")
-                # No rerun needed, will happen on next interaction
-
-        page_options = ["Home"]
+        # 1. Determine available pages based on file upload status
         if st.session_state.file_uploaded:
-            page_options = [
-                "🏠 Home",
-                "📊 Data Overview",
-                "❓ Missing Values",
-                "🏛️ Column Management",
-                "📑 Handle Duplicates",
-                "📈 Outlier Handling",
-                "🔡 Text Cleaning",
-                "🔍 Data Filtering",
-                "📥 Download"
-            ]
+            available_pages = list(PAGES.keys())
+        else:
+            available_pages = [list(PAGES.keys())[0]]
 
-        # Use a mapping to keep radio options clean but pages identifiable
-        page_mapping = {
-            "🏠 Home": "Home",
-            "📊 Data Overview": "Data Overview",
-            "❓ Missing Values": "Missing Values",
-            "🏛️ Column Management": "Column Management",
-            "📑 Handle Duplicates": "Handle Duplicates",
-            "📈 Outlier Handling": "Outlier Handling",
-            "🔡 Text Cleaning": "Text Cleaning",
-            "🔍 Data Filtering": "Data Filtering",
-            "📥 Download": "Download"
-        }
-        
-        # Determine the default index for the radio button
-        current_page_display = [k for k, v in page_mapping.items() if v == st.session_state.get('active_page', 'Home')]
-        default_index = page_options.index(current_page_display[0]) if current_page_display else 0
+        # 2. Defensive check for active page validity
+        if st.session_state.active_page not in available_pages:
+            st.session_state.active_page = available_pages[0]
 
-        selected_page_display = st.radio(
+        # 3. Create the radio button with a guaranteed valid index
+        default_index = available_pages.index(st.session_state.active_page)
+        st.session_state.active_page = st.radio(
             "Go to:",
-            options=page_options,
+            options=available_pages,
             index=default_index,
             key='navigation_radio'
         )
-        st.session_state.active_page = page_mapping.get(selected_page_display, "Home")
-
-        st.markdown("---")
-        st.info("Created with ❤️ by an AI Assistant.")
         
-        # New file upload button in sidebar
+        st.markdown("---")
+
+        # --- Sidebar Action Buttons ---
         if st.session_state.file_uploaded:
-             if st.button("⬆️ Upload a New File"):
-                reset_app_state()
+            if st.button("↩️ Reset All Changes", help="Revert to the originally uploaded data."):
+                st.session_state.df = st.session_state.df_original.copy()
+                st.session_state.history = []
+                log_action("All changes have been reset to the original file state.")
                 st.rerun()
 
+            if st.button("⬆️ Upload a New File", help="Reset the entire app and upload a new file."):
+                reset_app_state() # This function already calls rerun
+
+        st.markdown("---")
+        st.info("Created with ❤️ by Gemini Advanced.")
 
     # --- Page Routing ---
-    active_page = st.session_state.active_page
-
-    if not st.session_state.file_uploaded:
-        render_home_page()
-    else:
-        if active_page == "Home":
-            render_home_page()
-        elif active_page == "Data Overview":
-            render_overview_page()
-        elif active_page == "Missing Values":
-            render_missing_values_page()
-        elif active_page == "Column Management":
-            render_column_management_page()
-        elif active_page == "Handle Duplicates":
-            render_duplicates_page()
-        elif active_page == "Outlier Handling":
-            render_outlier_page()
-        elif active_page == "Text Cleaning":
-            render_text_cleaning_page()
-        elif active_page == "Data Filtering":
-            render_filtering_page()
-        elif active_page == "Download":
-            render_download_page()
+    # Retrieve the function name from the PAGES dictionary and call it
+    page_function_name = PAGES.get(st.session_state.active_page)
+    if page_function_name:
+        # Use getattr to dynamically call the correct render function
+        page_function = globals().get(page_function_name)
+        if page_function:
+            page_function()
         else:
-            render_home_page() # Default fallback
+            st.error(f"Error: Could not find the function {page_function_name}.")
+            render_home_page()
+    else:
+        render_home_page() # Fallback to home page
 
 
 if __name__ == "__main__":
