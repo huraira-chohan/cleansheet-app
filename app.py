@@ -120,7 +120,7 @@ def auto_clean_column(col):
 if st.session_state.active_tab == "📊 Preview":
         st.subheader("🔎 Dataset Preview")
 
-    df_display = st.session_state.df_clean.copy()
+        df_display = st.session_state.df_clean.copy()
 
     view_opt = st.radio(
         "How much data to show?",
