@@ -74,6 +74,7 @@ def reset_app_state():
     st.session_state.df_original = None
     st.session_state.file_uploaded = False
     st.session_state.file_uploader_key += 1 # Increment key to force re-render of file_uploader
+    st.session_state.active_page = "Home"  # <-- THE FIX: Reset the active page to a valid default.
     st.toast("Application has been reset. Please upload a new file.", icon="🔄")
 
 
