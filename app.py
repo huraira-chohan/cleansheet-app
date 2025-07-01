@@ -29,14 +29,19 @@ st.title("🧹 CleanSheet")
 st.caption("An all-in-one, no-code data cleaning assistant")
 
 # --- 4. SESSION STATE INITIALIZATION ---
-# A dedicated function makes the app's startup logic clearer.
-# In your initialize_session_state() function from Part 1, add this:
+# This single, complete function will prevent the AttributeError.
+# It creates all necessary session state keys with default values on the very first run.
 def initialize_session_state():
-    """Initializes session state variables if they don't already exist."""
-    # ... (previous initializations) ...
-
-    # NEW: A dictionary to store all staged operations from various tabs.
-    if "staged_ops" not in st.session_state:
+    """Initializes all required session state variables if they don't already exist."""
+    
+    # Check for a core key. If it doesn't exist, we know it's the first run.
+    if "df_clean" not in st.session_state:
+        st.session_state.df_clean = None
+        st.session_state.df_original = None
+        st.session_state.active_tab = "📊 Preview"
+        st.session_state.adv_filter_reset_key = 0
+        
+        # This was the part you had, which is also necessary.
         st.session_state.staged_ops = {
             "clean": [],
             "columns": {"drop": [], "rename": {}},
@@ -44,18 +49,19 @@ def initialize_session_state():
             "sort": {},
         }
 
+# --- Call the initialization function ONCE at the start of the main app logic ---
+initialize_session_state()
+
 # --- 5. DATA LOADING FUNCTIONS ---
-# Functions are now more robust, performant, and use constants.
+# These functions are now safe to use because the session state is guaranteed to exist.
 
 @st.cache_data(show_spinner="Downloading sample data...")
 def load_titanic_sample():
     """Downloads and caches the Titanic dataset from a specified URL."""
     try:
-        # Use the constant for the URL.
         response = requests.get(TITANIC_URL)
-        response.raise_for_status()  # Raises an HTTPError for bad responses (4xx or 5xx)
+        response.raise_for_status()
         df = pd.read_csv(StringIO(response.text))
-        # Run the same null value replacement as the uploaded file for consistency.
         df.replace(NULL_VALUE_REPLACEMENTS, np.nan, inplace=True)
         return df
     except requests.exceptions.RequestException as e:
@@ -69,17 +75,13 @@ def load_uploaded_file(file):
     """Loads a user-uploaded CSV file into a DataFrame."""
     try:
         df = pd.read_csv(file)
-        # Use the constant for null value replacements.
         df.replace(NULL_VALUE_REPLACEMENTS, np.nan, inplace=True)
         return df
     except Exception as e:
         st.error(f"❌ Failed to read or process the uploaded file: {e}")
         return None
 
-# --- 6. MAIN APP LOGIC ---
-
-# Initialize state at the start of the script run.
-initialize_session_state()
+# --- 6. SIDEBAR AND DATA LOADING LOGIC ---
 
 # --- Sidebar Controls ---
 st.sidebar.markdown("### 📦 Load Dataset")
@@ -87,7 +89,6 @@ load_sample_clicked = st.sidebar.button("📂 Load Sample Titanic Dataset")
 uploaded_file = st.sidebar.file_uploader("📤 Or Upload your CSV file", type=["csv"])
 
 # --- Handle Data Loading ---
-# This refactored logic is DRY (Don't Repeat Yourself).
 newly_loaded_df = None
 if load_sample_clicked:
     newly_loaded_df = load_titanic_sample()
@@ -103,21 +104,23 @@ elif uploaded_file is not None:
 if newly_loaded_df is not None:
     st.session_state.df_original = newly_loaded_df.copy()
     st.session_state.df_clean = newly_loaded_df.copy()
-    # When new data is loaded, reset the view to the Preview tab
     st.session_state.active_tab = "📊 Preview"
-    # A rerun ensures the UI updates immediately with the new data.
+    
+    # When new data is loaded, reset all staged operations.
+    st.session_state.staged_ops = {
+        "clean": [], "columns": {"drop": [], "rename": {}},
+        "filter": {"simple": [], "advanced": ""}, "sort": {},
+    }
     st.rerun()
 
 # --- 7. DATA AVAILABILITY GUARD ---
-# This is a great pattern. We'll keep it as is.
+# This check is now completely safe and will not cause an AttributeError.
 if st.session_state.df_clean is None:
     st.info("📎 Please upload a CSV file or load the sample dataset to get started.")
     st.stop()
 
 # Create a working copy of the dataframe for this script run.
-# This is a good practice to prevent accidental modification of the state.
 df_display = st.session_state.df_clean.copy()
-
 # --- 8. HELPER FUNCTIONS ---
 # These functions are mostly fine, but we can improve the exception handling.
 # (For brevity, I will only show the improved function)
