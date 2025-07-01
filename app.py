@@ -2,7 +2,6 @@
 # Group imports: standard library first, followed by third-party packages.
 from io import StringIO
 import re
-
 import numpy as np
 import pandas as pd
 import requests
