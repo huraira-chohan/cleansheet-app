@@ -173,7 +173,10 @@ elif st.session_state.active_tab == "🧹 Clean":
         st.warning("⚠️ Please load a dataset to begin cleaning.")
         st.stop()
 
-    def apply_action(df, column, action, params):
+    def apply_action(df, column, action, params=None):
+    if params is None:
+        params = {}
+
         df_out = df.copy()
         if column not in df_out.columns:
             st.error(f"Column '{column}' not found. It might have been dropped or renamed.")
