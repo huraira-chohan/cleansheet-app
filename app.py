@@ -22,6 +22,10 @@ TAB_LABELS = [
     "🧠 Advanced Filter", "⬇️ Export"
 ]
 
+st.radio(
+    "Navigation", options=TAB_LABELS, key="active_tab",
+    horizontal=True, label_visibility="collapsed"
+)
 
 # --- 3. STREAMLIT PAGE CONFIG ---
 st.set_page_config(page_title=APP_TITLE, layout="wide")
