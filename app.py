@@ -123,8 +123,8 @@ if st.session_state.active_tab == "📊 Preview":
 # --- 🧹 Clean Tab ---
 elif st.session_state.active_tab == "🧹 Clean":
     st.subheader("🧹 Clean Your Dataset")
-    df_clean_tab = st.session_state.df_clean
 
+    df_clean_tab = st.session_state.df_clean.copy()
     if df_clean_tab.empty:
         st.warning("⚠️ No dataset loaded.")
         st.stop()
@@ -142,7 +142,6 @@ elif st.session_state.active_tab == "🧹 Clean":
         ]
     )
 
-    # Custom fill and replacement options
     custom_fill_value = st.text_input("Custom value for NaNs (if selected)", key="custom_fill_val")
 
     replace_dict = {}
@@ -153,11 +152,11 @@ elif st.session_state.active_tab == "🧹 Clean":
             if old_vals:
                 replace_dict = {v.strip(): new_val for v in old_vals.split(",")}
 
-    # --- Preview Before/After ---
-    preview_col1, preview_col2 = st.columns(2)
-    preview_col1.write("**Before Cleaning**")
-    preview_col1.write(df_clean_tab[[col]].head(10))
+    col1, col2 = st.columns(2)
+    col1.write("**Before Cleaning**")
+    col1.dataframe(df_clean_tab[[col]].head(10), use_container_width=True)
 
+    # Prepare a working copy for cleaning
     cleaned = df_clean_tab.copy()
 
     for action in actions:
@@ -190,14 +189,18 @@ elif st.session_state.active_tab == "🧹 Clean":
             std_val = cleaned[col].std()
             cleaned = cleaned[(cleaned[col] - mean_val).abs() <= 3 * std_val]
 
-    preview_col2.write("**After Cleaning**")
-    preview_col2.write(cleaned[[col]].head(10))
+    col2.write("**After Cleaning**")
+    col2.dataframe(cleaned[[col]].head(10), use_container_width=True)
 
     if st.button("✅ Apply Cleaning"):
-        updated_df = st.session_state.df_clean.copy()
-        updated_df.update(cleaned)
-        st.session_state.df_clean = updated_df
-        st.success("✅ Cleaning applied and saved to session.")
+        st.session_state.df_clean = cleaned.copy()
+        st.success("✅ Cleaning applied to exportable dataset.")
+        st.rerun()
+
+    # --- Reset for Column-Wise Cleaning ---
+    if st.button("🔄 Reset Column Cleaning"):
+        st.session_state.df_clean = st.session_state.df_original.copy()
+        st.success("✅ Dataset reset to original.")
         st.rerun()
 
     # --- Bulk Column Cleaning ---
@@ -211,23 +214,21 @@ elif st.session_state.active_tab == "🧹 Clean":
                 ["None", "Text Normalize", "Convert to Numeric"],
                 key=f"clean_{c}"
             )
+
             fill_opt = st.selectbox(
                 f"NaN Handling for `{c}`",
                 ["None", "Drop Rows", "Fill with Mean", "Fill with Median", "Fill with Mode"],
                 key=f"fill_{c}"
             )
-            apply_bulk = st.button(f"Apply to `{c}`", key=f"apply_{c}")
 
-            if apply_bulk:
+            if st.button(f"Apply to `{c}`", key=f"apply_{c}"):
                 bulk_df = st.session_state.df_clean.copy()
 
-                # Clean option
                 if clean_opt == "Text Normalize":
                     bulk_df[c] = bulk_df[c].apply(clean_text)
                 elif clean_opt == "Convert to Numeric":
                     bulk_df[c] = bulk_df[c].apply(convert_to_numeric)
 
-                # Fill option
                 if fill_opt == "Drop Rows":
                     bulk_df = bulk_df[bulk_df[c].notna()]
                 elif fill_opt == "Fill with Mean" and pd.api.types.is_numeric_dtype(bulk_df[c]):
@@ -235,18 +236,22 @@ elif st.session_state.active_tab == "🧹 Clean":
                 elif fill_opt == "Fill with Median" and pd.api.types.is_numeric_dtype(bulk_df[c]):
                     bulk_df[c] = bulk_df[c].fillna(bulk_df[c].median())
                 elif fill_opt == "Fill with Mode":
-                    bulk_df[c] = bulk_df[c].fillna(bulk_df[c].mode().iloc[0])
+                    try:
+                        bulk_df[c] = bulk_df[c].fillna(bulk_df[c].mode().iloc[0])
+                    except:
+                        pass
 
                 st.session_state.df_clean = bulk_df.copy()
-                st.success(f"✅ Applied cleaning to `{c}`")
+                st.success(f"✅ Bulk cleaning applied to `{c}`")
                 st.rerun()
 
-    # --- Reset Clean Tab Button ---
+    # --- Reset for Bulk Cleaning ---
     st.markdown("---")
-    if st.button("🔄 Reset Clean Tab"):
+    if st.button("🔄 Reset Bulk Cleaning"):
         st.session_state.df_clean = st.session_state.df_original.copy()
         st.success("✅ Dataset reset to original.")
         st.rerun()
+
 
 # --- 🧮 Columns Tab ---
 elif st.session_state.active_tab == "🧮 Columns":
