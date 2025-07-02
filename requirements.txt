@@ -10,3 +10,9 @@ openai
 plotly
 seaborn
 matplotlib
+streamlit
+pandas
+numpy
+seaborn
+ydata-profiling
+openpyxl
