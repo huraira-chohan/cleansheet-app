@@ -40,7 +40,7 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 # 2. APPLICATION CONFIGURATION AND CONSTANTS
 # ==================================================================================================
 
-APP_TITLE = "The Ultimate CSV Data Cleaner"
+APP_TITLE = "CSV Data Cleaner"
 APP_ICON = "-🧹"
 
 # Define the structure of our application pages
@@ -809,7 +809,7 @@ def main():
                 reset_app_state() # This function already calls rerun
 
         st.markdown("---")
-        st.info("Created with ❤️ by Gemini Advanced.")
+        st.info("Created by Chohan.")
 
     # --- Page Routing ---
     # Retrieve the function name from the PAGES dictionary and call it
