@@ -660,7 +660,163 @@ def render_outlier_page():
 
 # ---------------------------------- 5.7 TRANSFORMATION PAGE -----------------------------------
 # --- Make sure this import is at the top of your app.py file! ---
-import dateparser
+def render_transformation_page():
+    """Renders page for text-to-number, find/replace, text cleaning, normalization, scaling, and date extraction."""
+    st.header("🔬 Data Transformation")
+    st.markdown("Apply common transformations to prepare your data for modeling or analysis.")
+
+    if st.session_state.df is None:
+        st.warning("Please upload a file first.")
+        return
+
+    df = st.session_state.df
+
+    # Define the tabs for this page
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "📝 Text-to-Number",
+        "🔎 Find & Replace", 
+        "📊 Normalize Categories", 
+        "🔡 Text Cleaning", 
+        "🔢 Numeric Scaling", 
+        "📅 Datetime Feature Extraction"
+    ])
+
+    with tab1:
+        st.subheader("Convert Number Words to Digits")
+        st.markdown("Automatically convert text like 'thirty' into its digit form '30'.")
+        
+        def convert_word_to_number(value):
+            try: return w2n.word_to_num(str(value))
+            except ValueError: return value
+
+        candidate_cols = get_categorical_columns(df) + get_numeric_columns(df)
+        if not candidate_cols:
+            st.info("No suitable columns found for this operation.")
+        else:
+            selected_col = st.selectbox("1. Select a column to convert:", options=candidate_cols, key="w2n_col_select")
+            if selected_col:
+                st.markdown("#### 2. Preview of Conversion")
+                temp_series = df[selected_col].apply(convert_word_to_number)
+                temp_series_numeric = pd.to_numeric(temp_series, errors='coerce')
+                preview_df = pd.DataFrame({
+                    "Original Value": df[selected_col].head(20),
+                    "Converted Value": temp_series_numeric.head(20)
+                })
+                st.dataframe(preview_df.dropna(subset=[f"Original Value"]), use_container_width=True)
+                if st.button("✅ Apply Text-to-Number Conversion", type="primary"):
+                    converted_series = st.session_state.df[selected_col].apply(convert_word_to_number)
+                    st.session_state.df[selected_col] = pd.to_numeric(converted_series, errors='coerce')
+                    log_action(f"Converted number-words to digits in column '{selected_col}'.")
+                    st.rerun()
+
+    with tab2:
+        st.subheader("Find and Replace Values in a Column")
+        categorical_cols = get_categorical_columns(df)
+        if not categorical_cols:
+            st.info("No categorical/text columns to perform replacements on.")
+        else:
+            with st.form("find_replace_form"):
+                selected_col_fr = st.selectbox("1. Select a column:", categorical_cols, key="fr_col_select")
+                match_case = st.checkbox("Match Case", value=False)
+                st.markdown("2. Define replacement rules:")
+                rules_df = pd.DataFrame([{"Value to Find": "", "Replace With": ""}])
+                edited_rules = st.data_editor(rules_df, num_rows="dynamic", use_container_width=True, key="find_replace_editor")
+                submitted_fr = st.form_submit_button("Apply Replacements")
+                if submitted_fr:
+                    valid_rules = edited_rules.dropna(subset=["Value to Find"]).loc[edited_rules["Value to Find"] != ""]
+                    if valid_rules.empty:
+                        st.warning("No replacement rules were defined.")
+                    else:
+                        temp_col = st.session_state.df[selected_col_fr].astype(str)
+                        if match_case:
+                            replace_dict = dict(zip(valid_rules["Value to Find"], valid_rules["Replace With"]))
+                            temp_col.replace(replace_dict, inplace=True)
+                        else:
+                            for _, rule in valid_rules.iterrows():
+                                temp_col = temp_col.str.replace(f'^{rule["Value to Find"]}$', rule["Replace With"], case=False, regex=True)
+                        st.session_state.df[selected_col_fr] = temp_col
+                        log_action(f"Applied Find/Replace in '{selected_col_fr}'.")
+                        st.rerun()
+
+    with tab3:
+        st.subheader("Normalize Categories (Visual Mapper)")
+        categorical_cols_norm = get_categorical_columns(df)
+        if not categorical_cols_norm:
+            st.info("No categorical/text columns in the dataset.")
+        else:
+            selected_col_norm = st.selectbox("Select a column to normalize:", categorical_cols_norm, key="norm_col_select_visual")
+            if selected_col_norm:
+                with st.form("visual_normalization_form"):
+                    unique_values = df[selected_col_norm].dropna().unique()
+                    mapping_df = pd.DataFrame({"Original Value": unique_values, "New Value": unique_values})
+                    edited_mapping_df = st.data_editor(mapping_df, use_container_width=True, key=f"editor_{selected_col_norm}")
+                    submitted_visual = st.form_submit_button("Apply Visual Normalization")
+                    if submitted_visual:
+                        mapping_dict = {k: v for k, v in zip(edited_mapping_df["Original Value"], edited_mapping_df["New Value"]) if k != v}
+                        if mapping_dict:
+                            st.session_state.df[selected_col_norm] = st.session_state.df[selected_col_norm].replace(mapping_dict)
+                            log_action(f"Normalized values in '{selected_col_norm}'.")
+                            st.rerun()
+                        else: st.warning("No changes were made.")
+
+    with tab4:
+        st.subheader("Clean Text Columns")
+        text_cols = get_categorical_columns(df)
+        if not text_cols:
+            st.info("No text/categorical columns found.")
+        else:
+            selected_col_clean = st.selectbox("Select a text column to clean:", text_cols, key="text_clean_col")
+            with st.form("text_cleaning_form"):
+                to_lowercase = st.checkbox("Convert to lowercase")
+                strip_whitespace = st.checkbox("Strip leading/trailing whitespace")
+                remove_punctuation = st.checkbox("Remove punctuation")
+                submitted_clean = st.form_submit_button("Apply Text Cleaning")
+                if submitted_clean:
+                    cleaned_series = df[selected_col_clean].astype(str)
+                    log_items = []
+                    if to_lowercase: cleaned_series = cleaned_series.str.lower(); log_items.append("lowercase")
+                    if strip_whitespace: cleaned_series = cleaned_series.str.strip(); log_items.append("strip whitespace")
+                    if remove_punctuation: cleaned_series = cleaned_series.str.replace(r'[^\w\s]', '', regex=True); log_items.append("remove punctuation")
+                    st.session_state.df[selected_col_clean] = cleaned_series
+                    if log_items:
+                        log_action(f"Applied text cleaning ({', '.join(log_items)}) to '{selected_col_clean}'.")
+                    else: st.warning("No cleaning options were selected.")
+
+    with tab5:
+        st.subheader("Scale Numeric Columns")
+        numeric_cols = get_numeric_columns(df)
+        if not numeric_cols:
+            st.info("No numeric columns found for scaling.")
+        else:
+            scaler_type = st.radio("Select Scaler Type:", ["Min-Max Scaler", "Standard Scaler"])
+            cols_to_scale = st.multiselect("Select numeric columns to scale:", numeric_cols)
+            if st.button("Apply Scaler"):
+                if cols_to_scale:
+                    scaler = MinMaxScaler() if scaler_type.startswith("Min-Max") else StandardScaler()
+                    st.session_state.df[cols_to_scale] = scaler.fit_transform(st.session_state.df[cols_to_scale])
+                    log_action(f"Applied {scaler.__class__.__name__} to: {', '.join(cols_to_scale)}.")
+                else: st.warning("Please select at least one column to scale.")
+
+    with tab6:
+        st.subheader("Extract Features from Datetime Columns")
+        datetime_cols = get_datetime_columns(df)
+        if not datetime_cols:
+            st.info("No datetime columns found.")
+        else:
+            selected_col_dt = st.selectbox("Select a datetime column:", datetime_cols, key="dt_col")
+            features_to_extract = st.multiselect("Select features:", ["Year", "Month", "Day", "Day of Week", "Hour"])
+            if st.button("Extract Datetime Features"):
+                if features_to_extract:
+                    for feature in features_to_extract:
+                        new_col_name = f"{selected_col_dt}_{feature.lower().replace(' ', '_')}"
+                        if feature == "Year": st.session_state.df[new_col_name] = df[selected_col_dt].dt.year
+                        if feature == "Month": st.session_state.df[new_col_name] = df[selected_col_dt].dt.month
+                        if feature == "Day": st.session_state.df[new_col_name] = df[selected_col_dt].dt.day
+                        if feature == "Day of Week": st.session_state.df[new_col_name] = df[selected_col_dt].dt.dayofweek
+                        if feature == "Hour": st.session_state.df[new_col_name] = df[selected_col_dt].dt.hour
+                    log_action(f"Extracted datetime features from '{selected_col_dt}'.")
+                    st.rerun()
+                else: st.warning("Please select features to extract.")
 
 # ... (the rest of your imports) ...
 
