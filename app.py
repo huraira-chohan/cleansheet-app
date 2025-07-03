@@ -664,9 +664,8 @@ def render_outlier_page():
 
 # ---------------------------------- 5.7 TRANSFORMATION PAGE -----------------------------------
 # ---------------------------------- 5.7 TRANSFORMATION PAGE -----------------------------------
-# ---------------------------------- 5.7 TRANSFORMATION PAGE -----------------------------------
 def render_transformation_page():
-    """Renders page for text cleaning, categorical normalization, scaling, and date extraction."""
+    """Renders page for find/replace, text cleaning, categorical normalization, scaling, and date extraction."""
     st.header("🔬 Data Transformation")
     st.markdown("Apply common transformations to prepare your data for modeling or analysis.")
 
@@ -676,177 +675,170 @@ def render_transformation_page():
 
     df = st.session_state.df
 
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Normalize Categories", "🔡 Text Cleaning", "🔢 Numeric Scaling", "📅 Datetime Feature Extraction"])
+    # ADDED the new "Find & Replace" tab as the first option for targeted control
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "🔎 Find & Replace", 
+        "📊 Normalize Categories", 
+        "🔡 Text Cleaning", 
+        "🔢 Numeric Scaling", 
+        "📅 Datetime Feature Extraction"
+    ])
 
     # =========================================================================
-    # --- NEW AND IMPROVED FEATURE: Normalize Categories Tab ---
+    # --- YOUR NEW FEATURE: Direct Find & Replace Tab ---
     # =========================================================================
     with tab1:
-        st.subheader("Normalize Categorical Data")
-        st.markdown("Consolidate different category spellings into a single, standard value. For example, mapping 'F', 'female', and 'FEMALE' all to 'Female'.")
+        st.subheader("Find and Replace Values in a Column")
+        st.markdown("Directly replace specific text values. This gives you precise, command-line-like control over your data.")
+
+        categorical_cols = get_categorical_columns(df)
+        if not categorical_cols:
+            st.info("No categorical/text columns found to perform replacements on.")
+        else:
+            with st.form("find_replace_form"):
+                col1, col2 = st.columns([2,1])
+                with col1:
+                    selected_col = st.selectbox("1. Select a column:", categorical_cols, key="fr_col_select")
+                with col2:
+                    match_case = st.checkbox("Match Case", value=False, help="If unchecked, 'male' will match 'Male' and 'MALE'. If checked, it will only match 'male'.")
+
+                st.markdown("2. Define your replacement rules:")
+                
+                # The "writing space" you wanted, implemented with the powerful data_editor
+                rules_df = pd.DataFrame([{"Value to Find": "", "Replace With": ""}])
+                edited_rules = st.data_editor(
+                    rules_df,
+                    num_rows="dynamic", # The user can add as many rules as they want!
+                    use_container_width=True,
+                    key="find_replace_editor"
+                )
+
+                submitted = st.form_submit_button("🚀 Apply Replacements", type="primary")
+                if submitted:
+                    # Filter out empty rules the user might have added accidentally
+                    valid_rules = edited_rules.dropna(subset=["Value to Find"]).loc[edited_rules["Value to Find"] != ""]
+                    
+                    if valid_rules.empty:
+                        st.warning("No replacement rules were defined. Please enter a value to find.")
+                    else:
+                        st.session_state.df[selected_col] = st.session_state.df[selected_col].astype(str)
+                        temp_col = st.session_state.df[selected_col].copy()
+
+                        # --- Backend Logic for Replacement ---
+                        if match_case:
+                            # Simple case: direct replacement dictionary
+                            replace_dict = dict(zip(valid_rules["Value to Find"], valid_rules["Replace With"]))
+                            temp_col.replace(replace_dict, inplace=True)
+                        else:
+                            # Complex case: case-insensitive replacement requires iteration
+                            for _, rule in valid_rules.iterrows():
+                                find_val = rule["Value to Find"]
+                                replace_val = rule["Replace With"]
+                                # Use regex for case-insensitive, full-cell match
+                                # `^` and `$` ensure the whole cell must match `find_val`
+                                temp_col = temp_col.str.replace(f'^{find_val}$', replace_val, case=False, regex=True)
+
+                        st.session_state.df[selected_col] = temp_col
+                        log_action(f"Applied Find/Replace in '{selected_col}'. Rules: {len(valid_rules)}, Match Case: {match_case}.")
+                        st.success("Replacements applied successfully!")
+                        st.rerun()
+
+    # =========================================================================
+    # --- Other Transformation Features ---
+    # =========================================================================
+    with tab2:
+        st.subheader("Normalize Categories (Visual Mapper)")
+        st.markdown("Visually group different spellings of a category into a single, standard value.")
         
         categorical_cols = get_categorical_columns(df)
         if not categorical_cols:
             st.info("No categorical/text columns found in the dataset.")
         else:
-            selected_col = st.selectbox("1. Select a categorical column to normalize:", categorical_cols, key="norm_col_select")
+            selected_col_norm = st.selectbox("Select a column to normalize:", categorical_cols, key="norm_col_select_visual")
             
-            if selected_col:
-                st.markdown("---")
-                st.markdown(f"#### 2. Define Your Mappings")
-                st.markdown("Edit the 'New Value' column to group categories. All original values will be replaced by their corresponding new value.")
-
-                with st.form("normalization_form"):
-                    unique_values = df[selected_col].dropna().unique()
-                    
-                    mapping_df = pd.DataFrame({
-                        "Original Value": unique_values,
-                        "New Value": unique_values,
-                    })
-                    
-                    # The powerful data_editor for user input
-                    edited_mapping_df = st.data_editor(
-                        mapping_df,
-                        num_rows="dynamic", # Allow adding new mappings if needed
-                        use_container_width=True,
-                        key=f"editor_{selected_col}"
-                    )
-
-                    # --- Live Preview of the Change ---
-                    st.markdown("#### 3. Preview Changes")
-                    # Create the mapping dictionary from the user's edits
-                    mapping_dict = dict(zip(edited_mapping_df["Original Value"], edited_mapping_df["New Value"]))
-                    
-                    # Create a temporary series to show the result
-                    temp_series = df[selected_col].replace(mapping_dict)
-
-                    # Prepare a side-by-side comparison
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.write("**Before** (Value Counts):")
-                        st.dataframe(df[selected_col].value_counts(), use_container_width=True)
-                    with col2:
-                        st.write("**After** (Value Counts):")
-                        st.dataframe(temp_series.value_counts(), use_container_width=True)
-                    # --- End of Preview ---
-
-                    submitted = st.form_submit_button("✅ Apply Normalization", type="primary")
-                    if submitted:
-                        # Use the direct and robust .replace() method
-                        st.session_state.df[selected_col] = st.session_state.df[selected_col].replace(mapping_dict)
-                        
-                        # Filter the dict to only log what actually changed
+            if selected_col_norm:
+                with st.form("visual_normalization_form"):
+                    unique_values = df[selected_col_norm].dropna().unique()
+                    mapping_df = pd.DataFrame({"Original Value": unique_values, "New Value": unique_values})
+                    edited_mapping_df = st.data_editor(mapping_df, use_container_width=True, key=f"editor_{selected_col_norm}")
+                    submitted_visual = st.form_submit_button("Apply Visual Normalization")
+                    if submitted_visual:
+                        mapping_dict = dict(zip(edited_mapping_df["Original Value"], edited_mapping_df["New Value"]))
+                        st.session_state.df[selected_col_norm] = st.session_state.df[selected_col_norm].replace(mapping_dict)
                         final_mappings = {k: v for k, v in mapping_dict.items() if k != v}
-                        
-                        log_desc = f"Normalized values in '{selected_col}'. Mappings: {final_mappings}"
-                        log_action(log_desc, f"df['{selected_col}'].replace({final_mappings}, inplace=True)")
-                        st.success(f"Successfully normalized the '{selected_col}' column!")
-                        st.rerun()
+                        if final_mappings:
+                            log_action(f"Normalized values in '{selected_col_norm}'. Mappings: {final_mappings}", f"df['{selected_col_norm}'].replace({final_mappings}, inplace=True)")
+                            st.success("Normalization applied!")
+                            st.rerun()
+                        else:
+                            st.warning("No changes were made.")
 
-    # =========================================================================
-    # --- Existing Functionality (now in subsequent tabs) ---
-    # =========================================================================
-    with tab2:
+    with tab3:
         st.subheader("Clean Text Columns")
         text_cols = get_categorical_columns(df)
         if not text_cols:
             st.info("No text/categorical columns found.")
         else:
-            selected_col = st.selectbox("Select a text column to clean:", text_cols, key="text_clean_col")
-            
+            selected_col_clean = st.selectbox("Select a text column to clean:", text_cols, key="text_clean_col")
             with st.form("text_cleaning_form"):
                 to_lowercase = st.checkbox("Convert to lowercase")
                 strip_whitespace = st.checkbox("Strip leading/trailing whitespace")
-                remove_punctuation = st.checkbox("Remove punctuation (keeps letters, numbers, and spaces)")
-                
-                submitted = st.form_submit_button("Apply Text Cleaning")
-                if submitted:
-                    # Chained operations for cleaner code
-                    cleaned_series = df[selected_col].astype(str)
+                remove_punctuation = st.checkbox("Remove punctuation")
+                submitted_clean = st.form_submit_button("Apply Text Cleaning")
+                if submitted_clean:
+                    cleaned_series = df[selected_col_clean].astype(str)
                     log_items = []
-                    
                     if to_lowercase:
-                        cleaned_series = cleaned_series.str.lower()
-                        log_items.append("lowercase")
+                        cleaned_series = cleaned_series.str.lower(); log_items.append("lowercase")
                     if strip_whitespace:
-                        cleaned_series = cleaned_series.str.strip()
-                        log_items.append("strip whitespace")
+                        cleaned_series = cleaned_series.str.strip(); log_items.append("strip whitespace")
                     if remove_punctuation:
-                        cleaned_series = cleaned_series.str.replace(r'[^\w\s]', '', regex=True)
-                        log_items.append("remove punctuation")
-                        
-                    st.session_state.df[selected_col] = cleaned_series
+                        cleaned_series = cleaned_series.str.replace(r'[^\w\s]', '', regex=True); log_items.append("remove punctuation")
+                    st.session_state.df[selected_col_clean] = cleaned_series
                     if log_items:
-                        log_action(f"Applied text cleaning ({', '.join(log_items)}) to '{selected_col}'.")
-                        st.success(f"Text cleaning applied to '{selected_col}'.")
-                        st.dataframe(pd.DataFrame({
-                            "Original": df[selected_col].head(), 
-                            "Cleaned": st.session_state.df[selected_col].head()
-                        }))
+                        log_action(f"Applied text cleaning ({', '.join(log_items)}) to '{selected_col_clean}'.")
+                        st.success("Text cleaning applied.")
                     else:
-                        st.warning("No text cleaning options were selected.")
+                        st.warning("No cleaning options were selected.")
 
-
-    with tab3:
+    with tab4:
         st.subheader("Scale Numeric Columns")
-        st.markdown("Scale numeric features to be on a similar scale. This is often a requirement for machine learning algorithms.")
         numeric_cols = get_numeric_columns(df)
         if not numeric_cols:
             st.info("No numeric columns found for scaling.")
         else:
             scaler_type = st.radio("Select Scaler Type:", ["Min-Max Scaler (to [0, 1])", "Standard Scaler (zero mean, unit variance)"])
             cols_to_scale = st.multiselect("Select numeric columns to scale:", numeric_cols)
-            
             if st.button("Apply Scaler"):
                 if not cols_to_scale:
                     st.warning("Please select at least one column to scale.")
                 else:
-                    if scaler_type == "Min-Max Scaler (to [0, 1])":
-                        scaler = MinMaxScaler()
-                        scaler_name = "MinMaxScaler"
-                    else:
-                        scaler = StandardScaler()
-                        scaler_name = "StandardScaler"
-                        
+                    scaler = MinMaxScaler() if scaler_type.startswith("Min-Max") else StandardScaler()
                     st.session_state.df[cols_to_scale] = scaler.fit_transform(st.session_state.df[cols_to_scale])
-                    log_action(f"Applied {scaler_name} to columns: {', '.join(cols_to_scale)}.")
-                    st.success(f"Scaling applied successfully. Preview of scaled columns:")
-                    st.dataframe(st.session_state.df[cols_to_scale].head())
+                    log_action(f"Applied {scaler.__class__.__name__} to: {', '.join(cols_to_scale)}.")
+                    st.success("Scaling applied.")
 
-    with tab4:
+    with tab5:
         st.subheader("Extract Features from Datetime Columns")
         datetime_cols = get_datetime_columns(df)
         if not datetime_cols:
-            st.info("No datetime columns found. You may need to change a column's type on the 'Column Operations' page first.")
+            st.info("No datetime columns found. Use 'Column Operations' to change types first.")
         else:
-            selected_col = st.selectbox("Select a datetime column:", datetime_cols, key="dt_col")
-            features_to_extract = st.multiselect(
-                "Select features to extract:",
-                ["Year", "Month", "Day", "Day of Week", "Hour", "Minute"]
-            )
-            
+            selected_col_dt = st.selectbox("Select a datetime column:", datetime_cols, key="dt_col")
+            features_to_extract = st.multiselect("Select features:", ["Year", "Month", "Day", "Day of Week", "Hour"])
             if st.button("Extract Datetime Features"):
                 if not features_to_extract:
-                    st.warning("Please select at least one feature to extract.")
+                    st.warning("Please select features to extract.")
                 else:
                     for feature in features_to_extract:
-                        new_col_name = f"{selected_col}_{feature.lower().replace(' ', '_')}"
-                        if feature == "Year":
-                            st.session_state.df[new_col_name] = df[selected_col].dt.year
-                        elif feature == "Month":
-                            st.session_state.df[new_col_name] = df[selected_col].dt.month
-                        elif feature == "Day":
-                            st.session_state.df[new_col_name] = df[selected_col].dt.day
-                        elif feature == "Day of Week":
-                            st.session_state.df[new_col_name] = df[selected_col].dt.dayofweek
-                        elif feature == "Hour":
-                            st.session_state.df[new_col_name] = df[selected_col].dt.hour
-                        elif feature == "Minute":
-                            st.session_state.df[new_col_name] = df[selected_col].dt.minute
-                    
-                    log_action(f"Extracted datetime features ({', '.join(features_to_extract)}) from '{selected_col}'.")
+                        new_col_name = f"{selected_col_dt}_{feature.lower().replace(' ', '_')}"
+                        if feature == "Year": st.session_state.df[new_col_name] = df[selected_col_dt].dt.year
+                        if feature == "Month": st.session_state.df[new_col_name] = df[selected_col_dt].dt.month
+                        if feature == "Day": st.session_state.df[new_col_name] = df[selected_col_dt].dt.day
+                        if feature == "Day of Week": st.session_state.df[new_col_name] = df[selected_col_dt].dt.dayofweek
+                        if feature == "Hour": st.session_state.df[new_col_name] = df[selected_col_dt].dt.hour
+                    log_action(f"Extracted datetime features from '{selected_col_dt}'.")
                     st.rerun()
-
 # ---------------------------------- 5.8 ACTION HISTORY PAGE -------------------------------------
 def render_history_page():
     """Renders the page showing a log of all cleaning actions taken."""
