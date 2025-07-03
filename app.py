@@ -1,68 +1,44 @@
 # --- Core and Data Handling Imports ---
-import streamlit as st
-import pandas as pd
-import numpy as np
-import io
+# --- Core and Third-Party Libraries ---
 import base64
-from typing import List, Dict, Callable
+import io
+import streamlit as st
+import numpy as np
+import pandas as pd
+import dateparser
+from typing import Callable, Dict, List
 from word2number import w2n
-from sklearn.preprocessing import MinMaxScaler, StandardScaler, OneHotEncoder
-from sklearn.impute import SimpleImputer # Make sure this is present
-from sklearn.model_selection import train_test_split
-# --- Machine Learning & Preprocessing Imports ---
-from sklearn.preprocessing import MinMaxScaler, StandardScaler, OneHotEncoder
-from sklearn.impute import SimpleImputer # <--- ADD THIS LINE
-from sklearn.model_selection import train_test_split
-# --- Visualization Imports ---
+
+# --- Visualization Libraries ---
+import matplotlib.pyplot as plt
 import plotly.express as px
 import seaborn as sns
-import matplotlib.pyplot as plt
-import dateparser
-# --- Machine Learning & Preprocessing Imports ---
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
-from sklearn.preprocessing import MinMaxScaler, StandardScaler, OneHotEncoder
-from sklearn.model_selection import train_test_split
+
+# --- Scikit-Learn Preprocessing and Pipeline ---
 from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
-from sklearn.metrics import accuracy_score, confusion_matrix, classification_report, mean_squared_error, r2_score
-
-# --- Models ---
-from sklearn.linear_model import LogisticRegression, LinearRegression
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.svm import SVC, SVR
-
-import streamlit as st
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-
-# Preprocessing
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import MinMaxScaler, OneHotEncoder, StandardScaler
 
-# Models - CLASSIFICATION
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.svm import SVC
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.tree import DecisionTreeClassifier
+# --- Scikit-Learn Metrics ---
+from sklearn.metrics import (accuracy_score, classification_report,
+                             confusion_matrix, mean_squared_error, r2_score)
+
+# --- Scikit-Learn Models ---
+from sklearn.ensemble import (GradientBoostingClassifier, GradientBoostingRegressor,
+                              RandomForestClassifier, RandomForestRegressor)
+from sklearn.linear_model import (ElasticNet, Lasso, LinearRegression,
+                                  LogisticRegression, Ridge)
 from sklearn.naive_bayes import GaussianNB
-from sklearn.neural_network import MLPClassifier
-import xgboost as xgb
+from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+from sklearn.neural_network import MLPClassifier, MLPRegressor
+from sklearn.svm import SVC, SVR
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+
+# --- Other Machine Learning Libraries ---
 import lightgbm as lgb
-
-# Models - REGRESSION
-from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.svm import SVR
-from sklearn.neighbors import KNeighborsRegressor
-from sklearn.tree import DecisionTreeRegressor
-from sklearn.neural_network import MLPRegressor
-
+import xgboost as xgb
 # Metrics
 from sklearn.metrics import classification_report, confusion_matrix, mean_squared_error, r2_score
 # ==================================================================================================
