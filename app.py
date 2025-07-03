@@ -349,9 +349,9 @@ def render_missing_values_page():
 # ---------------------------------- 5.4 COLUMN MANAGEMENT PAGE ----------------------------------
 # ---------------------------------- 5.4 COLUMN MANAGEMENT PAGE ----------------------------------
 def render_column_management_page():
-    """Renders page for splitting, dropping, renaming, and type-casting columns."""
+    """Renders page for date conversion, splitting, dropping, renaming, and type-casting columns."""
     st.header("🏛️ Column Operations")
-    st.markdown("Perform column-level operations like splitting, dropping, renaming, or changing data types.")
+    st.markdown("Perform column-level operations like converting dates, splitting, dropping, renaming, or changing types.")
     
     if st.session_state.df is None:
         st.warning("Please upload a file first.")
@@ -360,8 +360,9 @@ def render_column_management_page():
     df = st.session_state.df
     all_cols = df.columns.tolist()
 
-    # ADDED "Split Column" and reordered tabs for a logical workflow
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    # ADDED "Convert to Datetime" as the first and most specialized operation
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "📅 Convert to Datetime",
         "📊 Analyze Column Types", 
         "✂️ Split Column", 
         "🗑️ Drop Columns", 
@@ -369,161 +370,134 @@ def render_column_management_page():
         "🔄 Change Column Type"
     ])
 
+    # =========================================================================
+    # --- YOUR NEW FEATURE: Intelligent Date Conversion Tab ---
+    # =========================================================================
     with tab1:
+        st.subheader("Intelligent Date Conversion")
+        st.markdown("Convert columns with mixed date formats (e.g., `2021-01-01`, `March 3, 2021`, `04/01/2021`) into a standardized datetime format.")
+
+        candidate_cols = get_categorical_columns(df)
+        if not candidate_cols:
+            st.info("No text-based (object) columns found to convert. If your date column is already a number, change its type first.")
+        else:
+            selected_col = st.selectbox(
+                "1. Select column to convert to datetime:",
+                options=candidate_cols,
+                key="date_convert_select"
+            )
+
+            if selected_col:
+                st.markdown("#### 2. Set Parsing Options")
+                # This checkbox is the key to solving ambiguity
+                dayfirst_param = st.checkbox(
+                    "Assume Day is First (for formats like DD/MM/YYYY)",
+                    value=False,
+                    help="Check this if your ambiguous dates are like '01/04/2021' for April 1st. Uncheck for January 4th."
+                )
+
+                # --- Live Preview ---
+                st.markdown("#### 3. Preview Results")
+                try:
+                    # Use a temporary series for a safe preview
+                    preview_series = pd.to_datetime(
+                        df[selected_col],
+                        dayfirst=dayfirst_param,
+                        errors='coerce' # 'coerce' will turn un-parsable strings into NaT
+                    )
+                    
+                    preview_df = pd.DataFrame({
+                        f"Original Text in '{selected_col}'": df[selected_col].head(20),
+                        "Parsed Datetime (YYYY-MM-DD)": preview_series.head(20)
+                    })
+                    
+                    st.dataframe(preview_df.dropna(subset=[f"Original Text in '{selected_col}'"]), use_container_width=True)
+                    
+                    failed_parses = preview_series.isna().sum() - df[selected_col].isna().sum()
+                    if failed_parses > 0:
+                        st.warning(f"Warning: {failed_parses} values could not be parsed and were converted to NaT (Not a Time).")
+
+                except Exception as e:
+                    st.error(f"An error occurred during preview generation: {e}")
+
+                if st.button("✅ Apply Datetime Conversion", type="primary"):
+                    st.session_state.df[selected_col] = pd.to_datetime(
+                        st.session_state.df[selected_col],
+                        dayfirst=dayfirst_param,
+                        errors='coerce'
+                    )
+                    log_action(f"Converted column '{selected_col}' to datetime (dayfirst={dayfirst_param}).")
+                    st.success(f"Successfully converted '{selected_col}' to a standardized datetime format!")
+                    st.rerun()
+
+    # =========================================================================
+    # --- All Other Column Operations ---
+    # =========================================================================
+    with tab2:
         st.subheader("Analyze Column Data Types")
-        st.markdown("Understand the data types Pandas has inferred for each column. This is crucial for filtering and transformations.")
         numeric_cols = get_numeric_columns(df)
         categorical_cols = get_categorical_columns(df)
         datetime_cols = get_datetime_columns(df)
         col1, col2 = st.columns(2)
         with col1:
-            st.markdown("#### 🔢 Numeric Columns")
-            st.dataframe(pd.DataFrame(numeric_cols, columns=["Column Name"]), use_container_width=True)
+            st.markdown("#### 🔢 Numeric Columns"); st.dataframe(pd.DataFrame(numeric_cols, columns=["Column Name"]), use_container_width=True)
             st.markdown("---")
-            st.markdown("#### 📅 Datetime Columns")
-            st.dataframe(pd.DataFrame(datetime_cols, columns=["Column Name"]), use_container_width=True)
+            st.markdown("#### 📅 Datetime Columns"); st.dataframe(pd.DataFrame(datetime_cols, columns=["Column Name"]), use_container_width=True)
         with col2:
-            st.markdown("#### 🅰️ Categorical / Object Columns")
-            st.dataframe(pd.DataFrame(categorical_cols, columns=["Column Name"]), use_container_width=True)
+            st.markdown("#### 🅰️ Categorical / Object Columns"); st.dataframe(pd.DataFrame(categorical_cols, columns=["Column Name"]), use_container_width=True)
 
-    # =========================================================================
-    # --- NEW FEATURE: Split Column Tab ---
-    # =========================================================================
-    with tab2:
+    with tab3:
         st.subheader("Split a Column into Categorical and Numerical Parts")
-        st.markdown("Ideal for columns like 'Cabin' in the Titanic dataset (e.g., 'C85'), splitting it into a text part ('C') and a number part ('85').")
-
-        # Only suggest object/category columns for splitting
-        candidate_cols = get_categorical_columns(df)
-        if not candidate_cols:
+        candidate_cols_split = get_categorical_columns(df)
+        if not candidate_cols_split:
             st.info("No suitable (text-based) columns found to split.")
         else:
             with st.form("split_column_form"):
-                source_col = st.selectbox(
-                    "Select column to split:",
-                    options=candidate_cols,
-                    help="Choose a column that contains mixed text and numbers."
-                )
-                st.markdown("---")
-                st.markdown("**Name the new columns:**")
+                source_col = st.selectbox("Select column to split:", options=candidate_cols_split)
                 col1, col2 = st.columns(2)
-                with col1:
-                    new_cat_col_name = st.text_input("New Categorical Column Name", value=f"{source_col}_cat")
-                with col2:
-                    new_num_col_name = st.text_input("New Numerical Column Name", value=f"{source_col}_num")
-                
-                drop_original = st.checkbox("Drop the original column after splitting?", value=True)
-                
+                with col1: new_cat_col_name = st.text_input("New Text Column Name", value=f"{source_col}_cat")
+                with col2: new_num_col_name = st.text_input("New Number Column Name", value=f"{source_col}_num")
+                drop_original = st.checkbox("Drop original column?", value=True)
                 submitted = st.form_submit_button("Apply Split")
-
-                # --- Live Preview ---
-                if source_col:
-                    st.markdown("#### **Live Preview**")
-                    preview_df = pd.DataFrame()
-                    preview_df[f"{source_col} (Original)"] = df[source_col].head(100)
-                    # Extract non-digit part
-                    preview_df[f"{new_cat_col_name} (Text)"] = df[source_col].str.extract(r'([^\d]*)').head(100)
-                    # Extract digit part
-                    preview_df[f"{new_num_col_name} (Number)"] = df[source_col].str.extract(r'(\d+)').head(100)
-                    st.dataframe(preview_df.head(5), use_container_width=True)
-
-
                 if submitted:
-                    if not new_cat_col_name or not new_num_col_name:
-                        st.error("New column names cannot be empty.")
-                    elif new_cat_col_name in df.columns or new_num_col_name in df.columns:
-                        st.error("One of the new column names already exists in the DataFrame. Please choose unique names.")
-                    else:
-                        # Perform the split on the actual dataframe
-                        st.session_state.df[new_cat_col_name] = df[source_col].str.extract(r'([^\d]*)', expand=False).str.strip()
-                        numeric_part = df[source_col].str.extract(r'(\d+)', expand=False)
-                        st.session_state.df[new_num_col_name] = pd.to_numeric(numeric_part, errors='coerce')
-                        
-                        log_desc = f"Split column '{source_col}' into '{new_cat_col_name}' and '{new_num_col_name}'."
-                        
-                        if drop_original:
-                            st.session_state.df.drop(columns=[source_col], inplace=True)
-                            log_desc += f" Original column '{source_col}' was dropped."
-                        
-                        log_action(log_desc)
-                        st.success("Column split successfully!")
-                        st.rerun()
-
-    # =========================================================================
-    # --- Existing Functionality (now in subsequent tabs) ---
-    # =========================================================================
-    with tab3:
-        st.subheader("Drop Unnecessary Columns")
-        cols_to_drop = st.multiselect(
-            "Select columns to remove:",
-            options=all_cols,
-            help="This action is irreversible without resetting the app."
-        )
-        if st.button("Drop Selected Columns", type="primary"):
-            if not cols_to_drop:
-                st.warning("Please select at least one column to drop.")
-            else:
-                st.session_state.df.drop(columns=cols_to_drop, inplace=True)
-                log_action(f"Dropped columns: {', '.join(cols_to_drop)}", f"df.drop(columns={cols_to_drop}, inplace=True)")
-                st.rerun()
+                    st.session_state.df[new_cat_col_name] = df[source_col].str.extract(r'([^\d]*)', expand=False).str.strip()
+                    numeric_part = df[source_col].str.extract(r'(\d+)', expand=False)
+                    st.session_state.df[new_num_col_name] = pd.to_numeric(numeric_part, errors='coerce')
+                    log_desc = f"Split '{source_col}' into '{new_cat_col_name}' and '{new_num_col_name}'."
+                    if drop_original:
+                        st.session_state.df.drop(columns=[source_col], inplace=True)
+                        log_desc += f" Original column dropped."
+                    log_action(log_desc)
+                    st.rerun()
 
     with tab4:
-        st.subheader("Rename a Column")
-        col1, col2 = st.columns(2)
-        with col1:
-            col_to_rename = st.selectbox("Select a column to rename:", options=all_cols, key="rename_select")
-        with col2:
-            new_col_name = st.text_input("Enter the new column name:", value=col_to_rename)
-        
-        if st.button("Rename Column"):
-            if not new_col_name:
-                st.error("New column name cannot be empty.")
-            elif new_col_name in df.columns and new_col_name != col_to_rename:
-                st.error(f"A column named '{new_col_name}' already exists.")
-            else:
-                st.session_state.df.rename(columns={col_to_rename: new_col_name}, inplace=True)
-                log_action(f"Renamed column '{col_to_rename}' to '{new_col_name}'.", f"df.rename(columns={{'{col_to_rename}': '{new_col_name}'}}, inplace=True)")
-                st.rerun()
+        st.subheader("Drop Unnecessary Columns")
+        cols_to_drop = st.multiselect("Select columns to remove:", options=all_cols)
+        if st.button("Drop Selected Columns"):
+            st.session_state.df.drop(columns=cols_to_drop, inplace=True)
+            log_action(f"Dropped columns: {', '.join(cols_to_drop)}")
+            st.rerun()
 
     with tab5:
-        st.subheader("Change Column Data Type")
-        st.markdown("Change the data type of a column. Be cautious, as this can lead to data loss or errors if the conversion is not possible.")
-        col1, col2 = st.columns(2)
-        with col1:
-            col_to_change = st.selectbox("Select column:", options=all_cols, key="type_change_select")
-        with col2:
-            new_type = st.selectbox("Select new data type:", ['object (string)', 'int64', 'float64', 'datetime64[ns]', 'category', 'bool'])
-        
+        st.subheader("Rename a Column")
+        col_to_rename = st.selectbox("Select a column to rename:", options=all_cols, key="rename_select")
+        new_col_name = st.text_input("Enter the new column name:", value=col_to_rename)
+        if st.button("Rename Column"):
+            st.session_state.df.rename(columns={col_to_rename: new_col_name}, inplace=True)
+            log_action(f"Renamed '{col_to_rename}' to '{new_col_name}'.")
+            st.rerun()
+
+    with tab6:
+        st.subheader("Change Column Data Type (Manual)")
+        col_to_change = st.selectbox("Select column:", options=all_cols, key="type_change_select")
+        new_type = st.selectbox("Select new data type:", ['object (string)', 'int64', 'float64', 'category', 'bool'])
         if st.button("Apply Type Change"):
             try:
-                original_type = df[col_to_change].dtype
-                current_nulls = df[col_to_change].isnull().sum()
-                
-                temp_series = df[col_to_change].copy()
-                if new_type == 'datetime64[ns]':
-                    temp_series = pd.to_datetime(temp_series, errors='coerce')
-                else:
-                    if new_type == 'bool' and pd.api.types.is_object_dtype(temp_series):
-                        true_vals = ['true', 't', 'yes', 'y', '1']
-                        temp_series = temp_series.str.lower().isin(true_vals)
-                    else:
-                        temp_series = temp_series.astype(new_type, errors='raise')
-
-                new_nulls = temp_series.isnull().sum()
-                nan_diff = new_nulls - current_nulls
-                
-                st.session_state.df[col_to_change] = temp_series
-                log_action(f"Changed type of '{col_to_change}' from {original_type} to {new_type}.", f"df['{col_to_change}'] = df['{col_to_change}'].astype('{new_type}')")
-                
-                if nan_diff > 0:
-                    st.warning(f"Warning: {nan_diff} values could not be converted and were set to Null/NaN.")
-                
+                st.session_state.df[col_to_change] = st.session_state.df[col_to_change].astype(new_type)
+                log_action(f"Manually changed type of '{col_to_change}' to {new_type}.")
                 st.rerun()
-
-            except (ValueError, TypeError) as e:
-                st.error(f"Conversion failed for column '{col_to_change}' to type '{new_type}'. Error: {e}")
             except Exception as e:
-                st.error(f"An unexpected error occurred: {e}")
+                st.error(f"Conversion failed. Error: {e}")
 
 # ---------------------------------- 5.5 DUPLICATE HANDLING PAGE ---------------------------------
 def render_duplicate_handling_page():
