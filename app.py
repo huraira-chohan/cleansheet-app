@@ -349,9 +349,9 @@ def render_missing_values_page():
 # ---------------------------------- 5.4 COLUMN MANAGEMENT PAGE ----------------------------------
 # ---------------------------------- 5.4 COLUMN MANAGEMENT PAGE ----------------------------------
 def render_column_management_page():
-    """Renders page for dropping, renaming, reordering, and type-casting columns."""
+    """Renders page for splitting, dropping, renaming, and type-casting columns."""
     st.header("🏛️ Column Operations")
-    st.markdown("Perform column-level operations like dropping, renaming, or changing data types.")
+    st.markdown("Perform column-level operations like splitting, dropping, renaming, or changing data types.")
     
     if st.session_state.df is None:
         st.warning("Please upload a file first.")
@@ -360,49 +360,99 @@ def render_column_management_page():
     df = st.session_state.df
     all_cols = df.columns.tolist()
 
-    # --- TABS FOR DIFFERENT OPERATIONS ---
-    # ADDED "Analyze Column Types" as the first tab for better user flow
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Analyze Column Types", "🗑️ Drop Columns", "✏️ Rename Column", "🔄 Change Column Type"])
+    # ADDED "Split Column" and reordered tabs for a logical workflow
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "📊 Analyze Column Types", 
+        "✂️ Split Column", 
+        "🗑️ Drop Columns", 
+        "✏️ Rename Column", 
+        "🔄 Change Column Type"
+    ])
 
-    # =========================================================================
-    # --- NEW FEATURE: Analyze Column Types Tab ---
-    # =========================================================================
     with tab1:
         st.subheader("Analyze Column Data Types")
         st.markdown("Understand the data types Pandas has inferred for each column. This is crucial for filtering and transformations.")
-
         numeric_cols = get_numeric_columns(df)
         categorical_cols = get_categorical_columns(df)
         datetime_cols = get_datetime_columns(df)
-
         col1, col2 = st.columns(2)
-
         with col1:
             st.markdown("#### 🔢 Numeric Columns")
-            if numeric_cols:
-                st.dataframe(pd.DataFrame(numeric_cols, columns=["Column Name"]), use_container_width=True)
-            else:
-                st.info("No numeric columns found.")
-            
+            st.dataframe(pd.DataFrame(numeric_cols, columns=["Column Name"]), use_container_width=True)
             st.markdown("---")
-
             st.markdown("#### 📅 Datetime Columns")
-            if datetime_cols:
-                st.dataframe(pd.DataFrame(datetime_cols, columns=["Column Name"]), use_container_width=True)
-            else:
-                st.info("No datetime columns found.")
-
+            st.dataframe(pd.DataFrame(datetime_cols, columns=["Column Name"]), use_container_width=True)
         with col2:
             st.markdown("#### 🅰️ Categorical / Object Columns")
-            if categorical_cols:
-                st.dataframe(pd.DataFrame(categorical_cols, columns=["Column Name"]), use_container_width=True)
-            else:
-                st.info("No categorical columns found.")
+            st.dataframe(pd.DataFrame(categorical_cols, columns=["Column Name"]), use_container_width=True)
+
+    # =========================================================================
+    # --- NEW FEATURE: Split Column Tab ---
+    # =========================================================================
+    with tab2:
+        st.subheader("Split a Column into Categorical and Numerical Parts")
+        st.markdown("Ideal for columns like 'Cabin' in the Titanic dataset (e.g., 'C85'), splitting it into a text part ('C') and a number part ('85').")
+
+        # Only suggest object/category columns for splitting
+        candidate_cols = get_categorical_columns(df)
+        if not candidate_cols:
+            st.info("No suitable (text-based) columns found to split.")
+        else:
+            with st.form("split_column_form"):
+                source_col = st.selectbox(
+                    "Select column to split:",
+                    options=candidate_cols,
+                    help="Choose a column that contains mixed text and numbers."
+                )
+                st.markdown("---")
+                st.markdown("**Name the new columns:**")
+                col1, col2 = st.columns(2)
+                with col1:
+                    new_cat_col_name = st.text_input("New Categorical Column Name", value=f"{source_col}_cat")
+                with col2:
+                    new_num_col_name = st.text_input("New Numerical Column Name", value=f"{source_col}_num")
+                
+                drop_original = st.checkbox("Drop the original column after splitting?", value=True)
+                
+                submitted = st.form_submit_button("Apply Split")
+
+                # --- Live Preview ---
+                if source_col:
+                    st.markdown("#### **Live Preview**")
+                    preview_df = pd.DataFrame()
+                    preview_df[f"{source_col} (Original)"] = df[source_col].head(100)
+                    # Extract non-digit part
+                    preview_df[f"{new_cat_col_name} (Text)"] = df[source_col].str.extract(r'([^\d]*)').head(100)
+                    # Extract digit part
+                    preview_df[f"{new_num_col_name} (Number)"] = df[source_col].str.extract(r'(\d+)').head(100)
+                    st.dataframe(preview_df.head(5), use_container_width=True)
+
+
+                if submitted:
+                    if not new_cat_col_name or not new_num_col_name:
+                        st.error("New column names cannot be empty.")
+                    elif new_cat_col_name in df.columns or new_num_col_name in df.columns:
+                        st.error("One of the new column names already exists in the DataFrame. Please choose unique names.")
+                    else:
+                        # Perform the split on the actual dataframe
+                        st.session_state.df[new_cat_col_name] = df[source_col].str.extract(r'([^\d]*)', expand=False).str.strip()
+                        numeric_part = df[source_col].str.extract(r'(\d+)', expand=False)
+                        st.session_state.df[new_num_col_name] = pd.to_numeric(numeric_part, errors='coerce')
+                        
+                        log_desc = f"Split column '{source_col}' into '{new_cat_col_name}' and '{new_num_col_name}'."
+                        
+                        if drop_original:
+                            st.session_state.df.drop(columns=[source_col], inplace=True)
+                            log_desc += f" Original column '{source_col}' was dropped."
+                        
+                        log_action(log_desc)
+                        st.success("Column split successfully!")
+                        st.rerun()
 
     # =========================================================================
     # --- Existing Functionality (now in subsequent tabs) ---
     # =========================================================================
-    with tab2:
+    with tab3:
         st.subheader("Drop Unnecessary Columns")
         cols_to_drop = st.multiselect(
             "Select columns to remove:",
@@ -417,7 +467,7 @@ def render_column_management_page():
                 log_action(f"Dropped columns: {', '.join(cols_to_drop)}", f"df.drop(columns={cols_to_drop}, inplace=True)")
                 st.rerun()
 
-    with tab3:
+    with tab4:
         st.subheader("Rename a Column")
         col1, col2 = st.columns(2)
         with col1:
@@ -435,7 +485,7 @@ def render_column_management_page():
                 log_action(f"Renamed column '{col_to_rename}' to '{new_col_name}'.", f"df.rename(columns={{'{col_to_rename}': '{new_col_name}'}}, inplace=True)")
                 st.rerun()
 
-    with tab4:
+    with tab5:
         st.subheader("Change Column Data Type")
         st.markdown("Change the data type of a column. Be cautious, as this can lead to data loss or errors if the conversion is not possible.")
         col1, col2 = st.columns(2)
