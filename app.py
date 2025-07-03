@@ -13,7 +13,16 @@ import matplotlib.pyplot as plt
 import dateparser
 # --- Machine Learning & Preprocessing Imports ---
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler, OneHotEncoder
+from sklearn.model_selection import train_test_split
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report, mean_squared_error, r2_score
 
+# --- Models ---
+from sklearn.linear_model import LogisticRegression, LinearRegression
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.svm import SVC, SVR
 # ==================================================================================================
 # 2. APPLICATION CONFIGURATION AND CONSTANTS
 # ==================================================================================================
@@ -30,6 +39,7 @@ PAGES = {
     "📑 Row & Duplicate Manager": "render_duplicate_handling_page",
     "📈 Outlier Detection & Handling": "render_outlier_page",
     "🔬 Data Transformation": "render_transformation_page",
+    "🤖 ML Modeler": "render_ml_modeler_page",
     "📜 Action History": "render_history_page",
     "📥 Download & Export": "render_download_page",
 }
@@ -982,6 +992,198 @@ def render_column_management_page():
                 st.rerun()
             except Exception as e:
                 st.error(f"Conversion failed. Error: {e}")
+
+
+# ==================================================================================================
+# NEW PAGE: MACHINE LEARNING MODELER
+# ==================================================================================================
+def render_ml_modeler_page():
+    """Renders the page for training and evaluating machine learning models."""
+    st.header("🤖 Machine Learning Modeler")
+    st.markdown("Train a model on your cleaned data. This module automatically preprocesses your data and evaluates model performance.")
+
+    if st.session_state.df is None:
+        st.warning("Please upload and clean a file first.")
+        return
+
+    df = st.session_state.df.copy() # Use a copy to avoid altering the main dataframe
+
+    # --- 1. SETUP UI (in sidebar) ---
+    st.sidebar.header("ML Modeler Setup")
+
+    # 1.1: Select Target Variable
+    target_variable = st.sidebar.selectbox(
+        "1. Select Your Target Variable (Y)",
+        df.columns,
+        help="This is the column you want the model to predict."
+    )
+
+    # 1.2: Automatically Detect Problem Type
+    target_dtype = df[target_variable].dtype
+    if pd.api.types.is_numeric_dtype(target_dtype):
+        # Heuristic: If more than 25 unique values OR it's a float, assume regression.
+        if df[target_variable].nunique() > 25 or 'float' in str(target_dtype):
+            default_problem = "Regression"
+        else:
+            default_problem = "Classification"
+    else:
+        default_problem = "Classification"
+
+    problem_type = st.sidebar.radio(
+        "2. Select the Problem Type",
+        ("Classification", "Regression"),
+        index=0 if default_problem == "Classification" else 1,
+        help="This is auto-detected but you can override it."
+    )
+
+    # 1.3: Select Features
+    all_columns = df.columns.tolist()
+    all_columns.remove(target_variable)
+    
+    features_to_use = st.sidebar.multiselect(
+        "3. Select Features to Use (X)",
+        all_columns,
+        default=all_columns,
+        help="These are the columns the model will use to make predictions."
+    )
+    
+    if not features_to_use:
+        st.warning("Please select at least one feature to train the model.")
+        return
+        
+    X = df[features_to_use]
+    y = df[target_variable]
+
+    # --- 2. MODEL SELECTION & TUNING UI (in sidebar) ---
+    st.sidebar.header("Model Selection")
+    
+    if problem_type == "Classification":
+        model_list = ["Logistic Regression", "Random Forest Classifier", "Support Vector Machine"]
+    else: # Regression
+        model_list = ["Linear Regression", "Random Forest Regressor", "SVR"]
+
+    selected_model = st.sidebar.selectbox("4. Select a Model", model_list)
+
+    # --- Hyperparameter Tuning ---
+    params = {}
+    st.sidebar.subheader("Hyperparameters")
+    if selected_model == "Random Forest Classifier" or selected_model == "Random Forest Regressor":
+        params['n_estimators'] = st.sidebar.slider("Number of Trees", 50, 500, 100, 10)
+        params['max_depth'] = st.sidebar.slider("Max Depth of Trees", 2, 20, 5, 1)
+
+    elif selected_model == "Logistic Regression":
+        params['C'] = st.sidebar.slider("Regularization (C)", 0.01, 10.0, 1.0, 0.01)
+
+    elif selected_model == "Support Vector Machine" or selected_model == "SVR":
+        params['C'] = st.sidebar.slider("Regularization (C)", 0.01, 10.0, 1.0, 0.01)
+
+    # --- 3. EXECUTION ---
+    if st.button("🚀 Train and Evaluate Model", type="primary"):
+        with st.spinner("Training in progress... This may take a moment."):
+            
+            # --- Preprocessing Pipeline ---
+            # Identify categorical and numerical features IN THE SELECTED 'X'
+            numeric_features = X.select_dtypes(include=np.number).columns.tolist()
+            categorical_features = X.select_dtypes(include=['object', 'category', 'bool']).columns.tolist()
+
+            # Create the preprocessing pipelines for both numeric and categorical data
+            numeric_transformer = Pipeline(steps=[('scaler', StandardScaler())])
+            categorical_transformer = Pipeline(steps=[('onehot', OneHotEncoder(handle_unknown='ignore'))])
+
+            # Create a preprocessor object using ColumnTransformer
+            preprocessor = ColumnTransformer(
+                transformers=[
+                    ('num', numeric_transformer, numeric_features),
+                    ('cat', categorical_transformer, categorical_features)
+                ])
+
+            # --- Model Instantiation ---
+            if problem_type == "Classification":
+                if selected_model == "Logistic Regression":
+                    model = LogisticRegression(C=params['C'], max_iter=1000, random_state=42)
+                elif selected_model == "Random Forest Classifier":
+                    model = RandomForestClassifier(n_estimators=params['n_estimators'], max_depth=params['max_depth'], random_state=42)
+                elif selected_model == "Support Vector Machine":
+                    model = SVC(C=params['C'], probability=True, random_state=42)
+            else: # Regression
+                if selected_model == "Linear Regression":
+                    model = LinearRegression()
+                elif selected_model == "Random Forest Regressor":
+                    model = RandomForestRegressor(n_estimators=params['n_estimators'], max_depth=params['max_depth'], random_state=42)
+                elif selected_model == "SVR":
+                    model = SVR(C=params['C'])
+
+            # --- Create and train the full ML pipeline ---
+            ml_pipeline = Pipeline(steps=[('preprocessor', preprocessor),
+                                          ('classifier', model)])
+            
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+            
+            ml_pipeline.fit(X_train, y_train)
+            y_pred = ml_pipeline.predict(X_test)
+
+            st.success("Model trained successfully!")
+            
+            # --- 4. DISPLAY RESULTS ---
+            st.header(f"Results for {selected_model}")
+            
+            if problem_type == "Classification":
+                col1, col2 = st.columns(2)
+                with col1:
+                    accuracy = accuracy_score(y_test, y_pred)
+                    st.metric(label="Accuracy", value=f"{accuracy:.2%}")
+                
+                st.subheader("Classification Report")
+                report = classification_report(y_test, y_pred, output_dict=True)
+                st.dataframe(pd.DataFrame(report).transpose())
+                
+                st.subheader("Confusion Matrix")
+                cm = confusion_matrix(y_test, y_pred)
+                fig, ax = plt.subplots()
+                sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax,
+                            xticklabels=ml_pipeline.classes_, yticklabels=ml_pipeline.classes_)
+                ax.set_xlabel('Predicted')
+                ax.set_ylabel('Actual')
+                st.pyplot(fig)
+
+            else: # Regression
+                col1, col2 = st.columns(2)
+                mse = mean_squared_error(y_test, y_pred)
+                r2 = r2_score(y_test, y_pred)
+                with col1:
+                    st.metric(label="R-squared (R²)", value=f"{r2:.3f}")
+                with col2:
+                    st.metric(label="Mean Squared Error (MSE)", value=f"{mse:.3f}")
+
+                st.subheader("Actual vs. Predicted Values")
+                fig, ax = plt.subplots()
+                ax.scatter(y_test, y_pred, alpha=0.6, edgecolors=(0, 0, 0))
+                ax.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], '--', color='red', lw=2)
+                ax.set_xlabel('Actual Values')
+                ax.set_ylabel('Predicted Values')
+                ax.set_title('Actual vs. Predicted')
+                st.pyplot(fig)
+            
+            # --- Feature Importance (for tree-based models) ---
+            if hasattr(model, 'feature_importances_'):
+                st.subheader("Feature Importance")
+                # Get feature names after one-hot encoding
+                try:
+                    ohe_feature_names = ml_pipeline.named_steps['preprocessor'].named_transformers_['cat'].get_feature_names_out(categorical_features)
+                    all_feature_names = np.concatenate([numeric_features, ohe_feature_names])
+                    
+                    feature_imp = pd.DataFrame({
+                        'Feature': all_feature_names, 
+                        'Importance': model.feature_importances_
+                    }).sort_values('Importance', ascending=False).head(15)
+                    
+                    fig_imp, ax_imp = plt.subplots(figsize=(10, 6))
+                    sns.barplot(x='Importance', y='Feature', data=feature_imp, ax=ax_imp)
+                    ax_imp.set_title("Top 15 Feature Importances")
+                    st.pyplot(fig_imp)
+                except Exception as e:
+                    st.warning(f"Could not display feature importances. Reason: {e}")
+
 # ---------------------------------- 5.9 DOWNLOAD PAGE -------------------------------------------
 def render_download_page():
     """Renders the final page for downloading the cleaned data."""
