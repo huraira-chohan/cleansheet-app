@@ -6,6 +6,9 @@ import io
 import base64
 from typing import List, Dict, Callable
 from word2number import w2n
+from sklearn.preprocessing import MinMaxScaler, StandardScaler, OneHotEncoder
+from sklearn.impute import SimpleImputer # Make sure this is present
+from sklearn.model_selection import train_test_split
 # --- Machine Learning & Preprocessing Imports ---
 from sklearn.preprocessing import MinMaxScaler, StandardScaler, OneHotEncoder
 from sklearn.impute import SimpleImputer # <--- ADD THIS LINE
