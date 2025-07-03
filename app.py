@@ -1016,10 +1016,13 @@ def render_column_management_page():
 # ==================================================================================================
 # 5.8 ML MODELER PAGE (Upgraded with Comprehensive Metrics and Visualizations)
 # ==================================================================================================
+# ==================================================================================================
+# 5.8 ML MODELER PAGE (Corrected with Hyperparameter Tuning AND Comprehensive Metrics)
+# ==================================================================================================
 def render_ml_modeler_page():
-    """Renders the machine learning modeling page with comprehensive metrics and visualizations."""
+    """Renders the ML page with hyperparameter tuning, full metrics, and visualizations."""
     st.header("🤖 ML Modeler")
-    st.markdown("Select a target, choose an algorithm, tune it, and visualize its performance.")
+    st.markdown("Select an algorithm, tune its hyperparameters, and evaluate its performance in detail.")
 
     if st.session_state.df is None:
         st.warning("Please upload and prepare your data before modeling.")
@@ -1034,8 +1037,8 @@ def render_ml_modeler_page():
         
         df.dropna(subset=[target_variable], inplace=True)
         if df.empty:
-            st.error("DataFrame is empty after removing missing targets.")
-            return
+            st.error("DataFrame is empty after removing rows with missing targets.")
+            st.stop()
 
         problem_type = "Regression" if pd.api.types.is_numeric_dtype(df[target_variable].dtype) and df[target_variable].nunique() > 25 else "Classification"
         st.info(f"Problem Type: **{problem_type}**")
@@ -1044,9 +1047,9 @@ def render_ml_modeler_page():
         placeholder_text = "--Select an Algorithm--"
         if problem_type == "Classification":
             model_options = [placeholder_text, "Logistic Regression", "Random Forest Classifier", "Gradient Boosting", "XGBoost Classifier", "LightGBM Classifier", "SVC", "KNeighbors Classifier", "Decision Tree Classifier"]
-        else: # Regression
+        else:
             model_options = [placeholder_text, "Linear Regression", "Ridge", "Lasso", "Random Forest Regressor", "Gradient Boosting Regressor", "XGBoost Regressor", "LightGBM Regressor", "SVR"]
-
+        
         selected_model_name = st.selectbox("Select an algorithm:", model_options, index=0)
 
     # --- Main Page Logic ---
@@ -1054,24 +1057,41 @@ def render_ml_modeler_page():
         st.info("💡 Please select an algorithm from the sidebar to configure its parameters and train it.")
         return
 
+    # >>>>> HYPERPARAMETER TUNING LOGIC IS RESTORED HERE <<<<<
     with st.sidebar:
         st.header("3. Tune Model Hyperparameters")
         params = {}
-        # (Your hyperparameter tuning code goes here...)
-        if "Random Forest" in selected_model_name:
-            params['n_estimators'] = st.slider("Number of Trees", 10, 500, 100)
-            params['max_depth'] = st.slider("Max Depth", 2, 30, 10)
+        
+        if selected_model_name == "Logistic Regression":
+            params['C'] = st.slider("Regularization (C)", 0.01, 10.0, 1.0, 0.01)
+            params['solver'] = st.selectbox("Solver", ['liblinear', 'lbfgs', 'saga'])
+            params['max_iter'] = st.slider("Max Iterations", 100, 1000, 100, 50)
+        elif selected_model_name in ["Random Forest Classifier", "Random Forest Regressor"]:
+            params['n_estimators'] = st.slider("Number of Trees", 10, 1000, 100, 10)
+            params['max_depth'] = st.slider("Max Depth of Trees", 2, 50, 10, 1)
+            params['min_samples_leaf'] = st.slider("Min Samples per Leaf", 1, 20, 1, 1)
+        elif selected_model_name in ["Gradient Boosting", "Gradient Boosting Regressor"]:
+            params['n_estimators'] = st.slider("Number of Estimators", 10, 1000, 100, 10)
+            params['learning_rate'] = st.slider("Learning Rate", 0.01, 0.5, 0.1, 0.01)
+            params['max_depth'] = st.slider("Max Depth", 2, 15, 3, 1)
+        elif selected_model_name in ["XGBoost Classifier", "XGBoost Regressor"]:
+            params['n_estimators'] = st.slider("Number of Estimators", 10, 1000, 100, 10)
+            params['learning_rate'] = st.slider("Learning Rate", 0.01, 0.5, 0.1, 0.01)
+            params['max_depth'] = st.slider("Max Depth", 2, 15, 3, 1)
+            params['subsample'] = st.slider("Subsample", 0.5, 1.0, 1.0, 0.1)
         elif selected_model_name == "SVC":
              params['C'] = st.slider("Regularization (C)", 0.01, 100.0, 1.0)
              params['kernel'] = st.selectbox("Kernel", ['rbf', 'linear', 'poly'])
-        
+             params['probability'] = True # Always enable for metrics/plots
+        # ... Add any other elif blocks for other models here ...
+
         with st.expander("Advanced Settings"):
             test_size = st.slider("Test Set Size", 0.1, 0.5, 0.2, 0.05)
             random_state = st.number_input("Random Seed", value=42)
 
     if st.button(f"🚀 Train {selected_model_name}", type="primary", use_container_width=True):
-        with st.spinner("Preparing data and training the model..."):
-            # (All the pipeline and training code remains the same)
+        with st.spinner("Preparing data and training the model with your parameters..."):
+            # (Pipeline and training code is the same)
             X = df.drop(columns=[target_variable])
             y = df[target_variable]
             numeric_features = X.select_dtypes(include=np.number).columns.tolist()
@@ -1088,10 +1108,16 @@ def render_ml_modeler_page():
                 "LightGBM Regressor": lgb.LGBMRegressor, "SVR": SVR
             }
             ModelClass = model_class_map[selected_model_name]
-            if 'random_state' in ModelClass().get_params(): params['random_state'] = random_state
-            if selected_model_name == "SVC": params['probability'] = True
-            if "XGBoost" in selected_model_name: params['eval_metric'] = 'logloss' if problem_type == "Classification" else 'rmse'
-            model = ModelClass(**params)
+            
+            # Add random_state to params if model supports it
+            if 'random_state' in ModelClass().get_params():
+                params['random_state'] = random_state
+            
+            # Handle special cases for certain models
+            if "XGBoost" in selected_model_name:
+                params['eval_metric'] = 'logloss' if problem_type == "Classification" else 'rmse'
+            
+            model = ModelClass(**params) # Use the user-tuned params
             ml_pipeline = Pipeline(steps=[('preprocessor', preprocessor), ('model', model)])
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state, stratify=(y if problem_type == "Classification" else None))
             ml_pipeline.fit(X_train, y_train)
@@ -1103,60 +1129,46 @@ def render_ml_modeler_page():
         tab1, tab2 = st.tabs(["📊 Metrics Dashboard", "📈 Visualizations"])
 
         with tab1:
-            # <<< NEW COMPREHENSIVE METRICS CODE START >>>
+            # >>>>> THE NEW COMPREHENSIVE METRICS DASHBOARD <<<<<
             if problem_type == "Classification":
                 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, matthews_corrcoef
-                
-                # Calculate all metrics
                 y_proba = ml_pipeline.predict_proba(X_test)
                 acc = accuracy_score(y_test, y_pred)
                 prec = precision_score(y_test, y_pred, average='weighted', zero_division=0)
                 recall = recall_score(y_test, y_pred, average='weighted', zero_division=0)
                 f1 = f1_score(y_test, y_pred, average='weighted', zero_division=0)
                 mcc = matthews_corrcoef(y_test, y_pred)
-
-                # Handle multiclass vs binary for AUC
-                if len(y.unique()) > 2:
-                    auc_score = roc_auc_score(y_test, y_proba, multi_class='ovr', average='weighted')
-                else:
-                    auc_score = roc_auc_score(y_test, y_proba[:, 1])
+                auc_score = roc_auc_score(y_test, y_proba, multi_class='ovr', average='weighted') if len(y.unique()) > 2 else roc_auc_score(y_test, y_proba[:, 1])
 
                 st.subheader("Performance Metrics")
                 col1, col2, col3 = st.columns(3)
-                col1.metric("Accuracy", f"{acc:.3f}", help="The proportion of correctly classified samples.")
-                col2.metric("F1-Score (Weighted)", f"{f1:.3f}", help="The harmonic mean of precision and recall, weighted by support for each class.")
-                col3.metric("AUC (ROC)", f"{auc_score:.3f}", help="Area Under the ROC Curve; measures the model's ability to distinguish between classes.")
-
+                col1.metric("Accuracy", f"{acc:.3f}")
+                col2.metric("F1-Score (Weighted)", f"{f1:.3f}")
+                col3.metric("AUC (ROC)", f"{auc_score:.3f}")
                 col4, col5, col6 = st.columns(3)
-                col4.metric("Precision (Weighted)", f"{prec:.3f}", help="The ability of the classifier not to label a negative sample as positive.")
-                col5.metric("Recall (Weighted)", f"{recall:.3f}", help="The ability of the classifier to find all the positive samples.")
-                col6.metric("MCC", f"{mcc:.3f}", help="Matthews Correlation Coefficient; a robust metric for imbalanced data.")
+                col4.metric("Precision (Weighted)", f"{prec:.3f}")
+                col5.metric("Recall (Weighted)", f"{recall:.3f}")
+                col6.metric("MCC", f"{mcc:.3f}")
 
                 st.subheader("Classification Report")
-                report = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
-                st.dataframe(pd.DataFrame(report).transpose())
-
+                st.dataframe(pd.DataFrame(classification_report(y_test, y_pred, output_dict=True, zero_division=0)).transpose())
             else: # Regression
                 from sklearn.metrics import mean_absolute_error
-                
-                # Calculate all metrics
                 r2 = r2_score(y_test, y_pred)
                 mse = mean_squared_error(y_test, y_pred)
                 rmse = np.sqrt(mse)
                 mae = mean_absolute_error(y_test, y_pred)
-                
                 st.subheader("Performance Metrics")
                 col1, col2 = st.columns(2)
                 col3, col4 = st.columns(2)
-                col1.metric("R-squared (R²)", f"{r2:.3f}", help="Proportion of the variance in the target that is predictable from the features.")
-                col2.metric("Mean Absolute Error (MAE)", f"{mae:.3f}", help="Average absolute difference between actual and predicted values. Less sensitive to outliers.")
-                col3.metric("Root Mean Squared Error (RMSE)", f"{rmse:.3f}", help="Square root of the average of squared differences. In the same unit as the target.")
-                col4.metric("Mean Squared Error (MSE)", f"{mse:.3f}", help="Average of the squares of the errors. Penalizes larger errors more.")
-            # <<< NEW COMPREHENSIVE METRICS CODE END >>>
+                col1.metric("R-squared (R²)", f"{r2:.3f}")
+                col2.metric("Mean Absolute Error (MAE)", f"{mae:.3f}")
+                col3.metric("Root Mean Squared Error (RMSE)", f"{rmse:.3f}")
+                col4.metric("Mean Squared Error (MSE)", f"{mse:.3f}")
 
         with tab2:
+            # (The visualization code remains the same)
             st.subheader("Performance Plots")
-            # (Your existing visualization code goes here - no changes needed)
             if problem_type == "Classification":
                 from sklearn.metrics import roc_curve, auc, precision_recall_curve
                 if hasattr(ml_pipeline, "predict_proba"):
@@ -1171,7 +1183,7 @@ def render_ml_modeler_page():
                 cm = confusion_matrix(y_test, y_pred, labels=ml_pipeline.classes_)
                 sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax_cm, xticklabels=ml_pipeline.classes_, yticklabels=ml_pipeline.classes_)
                 st.pyplot(fig_cm)
-            else:
+            else: # Regression
                 st.markdown("#### Actual vs. Predicted Values")
                 fig_pred = px.scatter(x=y_test, y=y_pred, labels={'x': 'Actual Values', 'y': 'Predicted Values'}, title="Actual vs. Predicted")
                 fig_pred.add_shape(type='line', line=dict(dash='dash'), x0=y_test.min(), y0=y_test.min(), x1=y_test.max(), y1=y_test.max())
