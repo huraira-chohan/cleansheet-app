@@ -8,3 +8,12 @@ scikit-learn
 openpyxl
 word2number
 dateparser
+streamlit
+pandas
+numpy
+dateparser
+word2number
+scikit-learn
+plotly
+matplotlib
+seaborn
