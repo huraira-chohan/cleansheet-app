@@ -374,11 +374,6 @@ def render_missing_values_page():
                 except Exception as e:
                     st.error(f"Imputation failed: {e}. Check if method is compatible with column type.")
 
-# ---------------------------------- 5.4 COLUMN MANAGEMENT PAGE ----------------------------------
-# --- Make sure to add this new import at the top of your app.py file! ---
-import dateparser
-
-# ... (the rest of your imports) ...
 
 # ---------------------------------- 5.4 COLUMN MANAGEMENT PAGE ----------------------------------
 def render_column_management_page():
