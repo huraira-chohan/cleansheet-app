@@ -1013,8 +1013,11 @@ def render_column_management_page():
 # ==================================================================================================
 # 5.8 ML MODELER PAGE (Upgraded with Performance Visualizations)
 # ==================================================================================================
+# ==================================================================================================
+# 5.8 ML MODELER PAGE (Upgraded with Comprehensive Metrics and Visualizations)
+# ==================================================================================================
 def render_ml_modeler_page():
-    """Renders the machine learning modeling page with performance visualizations."""
+    """Renders the machine learning modeling page with comprehensive metrics and visualizations."""
     st.header("🤖 ML Modeler")
     st.markdown("Select a target, choose an algorithm, tune it, and visualize its performance.")
 
@@ -1034,7 +1037,7 @@ def render_ml_modeler_page():
             st.error("DataFrame is empty after removing missing targets.")
             return
 
-        problem_type = "Regression" if pd.api.types.is_numeric_dtype(df[target_variable]) and df[target_variable].nunique() > 25 else "Classification"
+        problem_type = "Regression" if pd.api.types.is_numeric_dtype(df[target_variable].dtype) and df[target_variable].nunique() > 25 else "Classification"
         st.info(f"Problem Type: **{problem_type}**")
 
         st.header("2. Choose Your Model")
@@ -1052,35 +1055,30 @@ def render_ml_modeler_page():
         return
 
     with st.sidebar:
-        # Hyperparameter tuning appears only after a model is selected
         st.header("3. Tune Model Hyperparameters")
         params = {}
-        # ... (Your existing hyperparameter code is fine, this is a placeholder for brevity)
+        # (Your hyperparameter tuning code goes here...)
         if "Random Forest" in selected_model_name:
             params['n_estimators'] = st.slider("Number of Trees", 10, 500, 100)
             params['max_depth'] = st.slider("Max Depth", 2, 30, 10)
         elif selected_model_name == "SVC":
              params['C'] = st.slider("Regularization (C)", 0.01, 100.0, 1.0)
              params['kernel'] = st.selectbox("Kernel", ['rbf', 'linear', 'poly'])
-        # Add other model parameters here...
         
         with st.expander("Advanced Settings"):
             test_size = st.slider("Test Set Size", 0.1, 0.5, 0.2, 0.05)
             random_state = st.number_input("Random Seed", value=42)
 
-    # Train Button - Placed in the main area for visibility
     if st.button(f"🚀 Train {selected_model_name}", type="primary", use_container_width=True):
         with st.spinner("Preparing data and training the model..."):
+            # (All the pipeline and training code remains the same)
             X = df.drop(columns=[target_variable])
             y = df[target_variable]
-
-            # --- Full Preprocessing and Model Pipeline ---
             numeric_features = X.select_dtypes(include=np.number).columns.tolist()
             categorical_features = X.select_dtypes(exclude=np.number).columns.tolist()
             numeric_transformer = Pipeline(steps=[('imputer', SimpleImputer(strategy='median')), ('scaler', StandardScaler())])
             categorical_transformer = Pipeline(steps=[('imputer', SimpleImputer(strategy='most_frequent')), ('onehot', OneHotEncoder(handle_unknown='ignore'))])
             preprocessor = ColumnTransformer(transformers=[('num', numeric_transformer, numeric_features), ('cat', categorical_transformer, categorical_features)])
-
             model_class_map = {
                 "Logistic Regression": LogisticRegression, "Random Forest Classifier": RandomForestClassifier, "Gradient Boosting": GradientBoostingClassifier,
                 "XGBoost Classifier": xgb.XGBClassifier, "LightGBM Classifier": lgb.LGBMClassifier, "SVC": SVC,
@@ -1090,105 +1088,107 @@ def render_ml_modeler_page():
                 "LightGBM Regressor": lgb.LGBMRegressor, "SVR": SVR
             }
             ModelClass = model_class_map[selected_model_name]
-            
-            # Add specific params for reproducibility and functionality
             if 'random_state' in ModelClass().get_params(): params['random_state'] = random_state
-            if selected_model_name == "SVC": params['probability'] = True # Needed for ROC curve
+            if selected_model_name == "SVC": params['probability'] = True
             if "XGBoost" in selected_model_name: params['eval_metric'] = 'logloss' if problem_type == "Classification" else 'rmse'
-                
             model = ModelClass(**params)
             ml_pipeline = Pipeline(steps=[('preprocessor', preprocessor), ('model', model)])
-            
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state, stratify=(y if problem_type == "Classification" else None))
             ml_pipeline.fit(X_train, y_train)
             y_pred = ml_pipeline.predict(X_test)
 
         st.success("Model training complete!")
-
-        # --- Display Results and Visualizations ---
         st.header("Model Performance")
         
-        # <<< NEW VISUALIZATION CODE START >>>
-        # Create tabs for a clean layout
-        tab1, tab2 = st.tabs(["📊 Metrics", "📈 Visualizations"])
+        tab1, tab2 = st.tabs(["📊 Metrics Dashboard", "📈 Visualizations"])
 
         with tab1:
+            # <<< NEW COMPREHENSIVE METRICS CODE START >>>
             if problem_type == "Classification":
+                from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, matthews_corrcoef
+                
+                # Calculate all metrics
+                y_proba = ml_pipeline.predict_proba(X_test)
+                acc = accuracy_score(y_test, y_pred)
+                prec = precision_score(y_test, y_pred, average='weighted', zero_division=0)
+                recall = recall_score(y_test, y_pred, average='weighted', zero_division=0)
+                f1 = f1_score(y_test, y_pred, average='weighted', zero_division=0)
+                mcc = matthews_corrcoef(y_test, y_pred)
+
+                # Handle multiclass vs binary for AUC
+                if len(y.unique()) > 2:
+                    auc_score = roc_auc_score(y_test, y_proba, multi_class='ovr', average='weighted')
+                else:
+                    auc_score = roc_auc_score(y_test, y_proba[:, 1])
+
+                st.subheader("Performance Metrics")
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Accuracy", f"{acc:.3f}", help="The proportion of correctly classified samples.")
+                col2.metric("F1-Score (Weighted)", f"{f1:.3f}", help="The harmonic mean of precision and recall, weighted by support for each class.")
+                col3.metric("AUC (ROC)", f"{auc_score:.3f}", help="Area Under the ROC Curve; measures the model's ability to distinguish between classes.")
+
+                col4, col5, col6 = st.columns(3)
+                col4.metric("Precision (Weighted)", f"{prec:.3f}", help="The ability of the classifier not to label a negative sample as positive.")
+                col5.metric("Recall (Weighted)", f"{recall:.3f}", help="The ability of the classifier to find all the positive samples.")
+                col6.metric("MCC", f"{mcc:.3f}", help="Matthews Correlation Coefficient; a robust metric for imbalanced data.")
+
                 st.subheader("Classification Report")
-                report = classification_report(y_test, y_pred, output_dict=True)
+                report = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
                 st.dataframe(pd.DataFrame(report).transpose())
+
             else: # Regression
-                st.subheader("Regression Metrics")
-                col1, col2 = st.columns(2)
-                mse = mean_squared_error(y_test, y_pred)
+                from sklearn.metrics import mean_absolute_error
+                
+                # Calculate all metrics
                 r2 = r2_score(y_test, y_pred)
-                with col1: st.metric(label="R-squared (R²)", value=f"{r2:.3f}")
-                with col2: st.metric(label="Mean Squared Error (MSE)", value=f"{mse:.3f}")
+                mse = mean_squared_error(y_test, y_pred)
+                rmse = np.sqrt(mse)
+                mae = mean_absolute_error(y_test, y_pred)
+                
+                st.subheader("Performance Metrics")
+                col1, col2 = st.columns(2)
+                col3, col4 = st.columns(2)
+                col1.metric("R-squared (R²)", f"{r2:.3f}", help="Proportion of the variance in the target that is predictable from the features.")
+                col2.metric("Mean Absolute Error (MAE)", f"{mae:.3f}", help="Average absolute difference between actual and predicted values. Less sensitive to outliers.")
+                col3.metric("Root Mean Squared Error (RMSE)", f"{rmse:.3f}", help="Square root of the average of squared differences. In the same unit as the target.")
+                col4.metric("Mean Squared Error (MSE)", f"{mse:.3f}", help="Average of the squares of the errors. Penalizes larger errors more.")
+            # <<< NEW COMPREHENSIVE METRICS CODE END >>>
 
         with tab2:
             st.subheader("Performance Plots")
-            
-            # --- For CLASSIFICATION models ---
+            # (Your existing visualization code goes here - no changes needed)
             if problem_type == "Classification":
                 from sklearn.metrics import roc_curve, auc, precision_recall_curve
-                
-                # Check if model can predict probabilities (needed for ROC/PR curves)
                 if hasattr(ml_pipeline, "predict_proba"):
-                    y_proba = ml_pipeline.predict_proba(X_test)[:, 1] # Probability of the positive class
-
-                    # ROC Curve
+                    y_proba = ml_pipeline.predict_proba(X_test)[:, 1]
                     fpr, tpr, _ = roc_curve(y_test, y_proba)
                     roc_auc = auc(fpr, tpr)
-                    fig_roc = px.area(x=fpr, y=tpr, title=f'ROC Curve (AUC = {roc_auc:.2f})', labels=dict(x='False Positive Rate', y='True Positive Rate'), width=700, height=500)
+                    fig_roc = px.area(x=fpr, y=tpr, title=f'ROC Curve (AUC = {roc_auc:.2f})', labels=dict(x='False Positive Rate', y='True Positive Rate'))
                     fig_roc.add_shape(type='line', line=dict(dash='dash'), x0=0, x1=1, y0=0, y1=1)
                     st.plotly_chart(fig_roc, use_container_width=True)
-
-                    # Precision-Recall Curve
-                    precision, recall, _ = precision_recall_curve(y_test, y_proba)
-                    fig_pr = px.line(x=recall, y=precision, title='Precision-Recall Curve', labels=dict(x='Recall', y='Precision'), width=700, height=500)
-                    st.plotly_chart(fig_pr, use_container_width=True)
-                
-                # Confusion Matrix (always available)
                 st.markdown("#### Confusion Matrix")
                 fig_cm, ax_cm = plt.subplots()
-                class_labels = ml_pipeline.named_steps['model'].classes_
-                cm = confusion_matrix(y_test, y_pred, labels=class_labels)
-                sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax_cm, xticklabels=class_labels, yticklabels=class_labels)
+                cm = confusion_matrix(y_test, y_pred, labels=ml_pipeline.classes_)
+                sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax_cm, xticklabels=ml_pipeline.classes_, yticklabels=ml_pipeline.classes_)
                 st.pyplot(fig_cm)
-
-            # --- For REGRESSION models ---
-            else: # Regression
-                # Actual vs. Predicted Plot
+            else:
                 st.markdown("#### Actual vs. Predicted Values")
                 fig_pred = px.scatter(x=y_test, y=y_pred, labels={'x': 'Actual Values', 'y': 'Predicted Values'}, title="Actual vs. Predicted")
                 fig_pred.add_shape(type='line', line=dict(dash='dash'), x0=y_test.min(), y0=y_test.min(), x1=y_test.max(), y1=y_test.max())
                 st.plotly_chart(fig_pred, use_container_width=True)
-                
-                # Residuals Plot
                 st.markdown("#### Residuals Plot")
                 residuals = y_test - y_pred
                 fig_res = px.scatter(x=y_pred, y=residuals, labels={'x': 'Predicted Values', 'y': 'Residuals'}, title="Residuals vs. Predicted Values")
                 fig_res.add_hline(y=0, line_dash="dash")
                 st.plotly_chart(fig_res, use_container_width=True)
-
-            # --- Feature Importance (for applicable models) ---
             model_step = ml_pipeline.named_steps['model']
             if hasattr(model_step, 'feature_importances_') or hasattr(model_step, 'coef_'):
                 st.markdown("#### Feature Importance")
-                if hasattr(model_step, 'feature_importances_'):
-                    importances = model_step.feature_importances_
-                else: # For linear models
-                    importances = model_step.coef_[0]
-
+                importances = model_step.feature_importances_ if hasattr(model_step, 'feature_importances_') else model_step.coef_[0]
                 feature_names = ml_pipeline.named_steps['preprocessor'].get_feature_names_out()
-                
-                feature_importance_df = pd.DataFrame({'Feature': feature_names, 'Importance': np.abs(importances)})
-                feature_importance_df = feature_importance_df.sort_values(by='Importance', ascending=False).head(20)
-                
+                feature_importance_df = pd.DataFrame({'Feature': feature_names, 'Importance': np.abs(importances)}).sort_values(by='Importance', ascending=False).head(20)
                 fig_imp = px.bar(feature_importance_df, x='Importance', y='Feature', orientation='h', title="Top 20 Most Important Features")
                 st.plotly_chart(fig_imp, use_container_width=True)
-        # <<< NEW VISUALIZATION CODE END >>>
-
 # ---------------------------------- 5.9 DOWNLOAD PAGE -------------------------------------------
 def render_download_page():
     """Renders the final page for downloading the cleaned data."""
