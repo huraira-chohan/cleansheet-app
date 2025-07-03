@@ -10,7 +10,7 @@ from word2number import w2n
 import plotly.express as px
 import seaborn as sns
 import matplotlib.pyplot as plt
-
+import dateparser
 # --- Machine Learning & Preprocessing Imports ---
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
@@ -347,6 +347,11 @@ def render_missing_values_page():
                     st.error(f"Imputation failed: {e}. Check if method is compatible with column type.")
 
 # ---------------------------------- 5.4 COLUMN MANAGEMENT PAGE ----------------------------------
+# --- Make sure to add this new import at the top of your app.py file! ---
+import dateparser
+
+# ... (the rest of your imports) ...
+
 # ---------------------------------- 5.4 COLUMN MANAGEMENT PAGE ----------------------------------
 def render_column_management_page():
     """Renders page for date conversion, splitting, dropping, renaming, and type-casting columns."""
@@ -360,7 +365,6 @@ def render_column_management_page():
     df = st.session_state.df
     all_cols = df.columns.tolist()
 
-    # ADDED "Convert to Datetime" as the first and most specialized operation
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📅 Convert to Datetime",
         "📊 Analyze Column Types", 
@@ -371,15 +375,15 @@ def render_column_management_page():
     ])
 
     # =========================================================================
-    # --- YOUR NEW FEATURE: Intelligent Date Conversion Tab ---
+    # --- UPGRADED FEATURE: Intelligent Date Conversion with Two Engines ---
     # =========================================================================
     with tab1:
         st.subheader("Intelligent Date Conversion")
-        st.markdown("Convert columns with mixed date formats (e.g., `2021-01-01`, `March 3, 2021`, `04/01/2021`) into a standardized datetime format.")
+        st.markdown("Convert columns with mixed date formats into a standardized datetime format.")
 
         candidate_cols = get_categorical_columns(df)
         if not candidate_cols:
-            st.info("No text-based (object) columns found to convert. If your date column is already a number, change its type first.")
+            st.info("No text-based (object) columns found to convert.")
         else:
             selected_col = st.selectbox(
                 "1. Select column to convert to datetime:",
@@ -388,29 +392,41 @@ def render_column_management_page():
             )
 
             if selected_col:
-                st.markdown("#### 2. Set Parsing Options")
-                # This checkbox is the key to solving ambiguity
+                st.markdown("#### 2. Choose Your Parsing Engine")
+                
+                # --- Let the user choose the engine ---
+                parser_engine = st.radio(
+                    "Select a parser:",
+                    ["**Pandas (Fast)** - Good for standard formats like YYYY-MM-DD.", 
+                     "**Dateparser (Flexible & Robust)** - Best for messy, mixed formats like 'March 3, 2021'."],
+                    index=1 # Default to the more powerful option
+                )
+
                 dayfirst_param = st.checkbox(
                     "Assume Day is First (for formats like DD/MM/YYYY)",
                     value=False,
-                    help="Check this if your ambiguous dates are like '01/04/2021' for April 1st. Uncheck for January 4th."
+                    help="Crucial for both engines to interpret ambiguous dates like '01/04/2021'."
                 )
 
-                # --- Live Preview ---
                 st.markdown("#### 3. Preview Results")
                 try:
-                    # Use a temporary series for a safe preview
-                    preview_series = pd.to_datetime(
-                        df[selected_col],
-                        dayfirst=dayfirst_param,
-                        errors='coerce' # 'coerce' will turn un-parsable strings into NaT
-                    )
-                    
+                    # Helper function to apply dateparser safely
+                    def parse_with_dateparser(date_string):
+                        if date_string is None: return pd.NaT
+                        # The settings dictionary directly controls dateparser's behavior
+                        parsed_date = dateparser.parse(str(date_string), settings={'DAY_FIRST': dayfirst_param})
+                        return parsed_date if parsed_date is not None else pd.NaT
+
+                    # --- Logic to generate the preview based on the selected engine ---
+                    if "Pandas" in parser_engine:
+                        preview_series = pd.to_datetime(df[selected_col].astype(str).str.strip(), dayfirst=dayfirst_param, errors='coerce')
+                    else: # Dateparser engine
+                        preview_series = df[selected_col].apply(parse_with_dateparser)
+
                     preview_df = pd.DataFrame({
                         f"Original Text in '{selected_col}'": df[selected_col].head(20),
                         "Parsed Datetime (YYYY-MM-DD)": preview_series.head(20)
                     })
-                    
                     st.dataframe(preview_df.dropna(subset=[f"Original Text in '{selected_col}'"]), use_container_width=True)
                     
                     failed_parses = preview_series.isna().sum() - df[selected_col].isna().sum()
@@ -421,12 +437,18 @@ def render_column_management_page():
                     st.error(f"An error occurred during preview generation: {e}")
 
                 if st.button("✅ Apply Datetime Conversion", type="primary"):
-                    st.session_state.df[selected_col] = pd.to_datetime(
-                        st.session_state.df[selected_col],
-                        dayfirst=dayfirst_param,
-                        errors='coerce'
-                    )
-                    log_action(f"Converted column '{selected_col}' to datetime (dayfirst={dayfirst_param}).")
+                    # --- Logic to apply the conversion based on the selected engine ---
+                    if "Pandas" in parser_engine:
+                        st.session_state.df[selected_col] = pd.to_datetime(df[selected_col].astype(str).str.strip(), dayfirst=dayfirst_param, errors='coerce')
+                    else: # Dateparser engine
+                        # Define the helper function again for the apply action
+                        def parse_with_dateparser_apply(date_string):
+                            if date_string is None: return pd.NaT
+                            parsed_date = dateparser.parse(str(date_string), settings={'DAY_FIRST': dayfirst_param})
+                            return parsed_date if parsed_date is not None else pd.NaT
+                        st.session_state.df[selected_col] = df[selected_col].apply(parse_with_dateparser_apply)
+                    
+                    log_action(f"Converted '{selected_col}' to datetime using {parser_engine.split(' ')[0]} engine.")
                     st.success(f"Successfully converted '{selected_col}' to a standardized datetime format!")
                     st.rerun()
 
