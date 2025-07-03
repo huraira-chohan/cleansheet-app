@@ -1016,19 +1016,20 @@ def render_ml_modeler_page():
     df = st.session_state.df.copy()
 
     # =========================================================================
-    # 1. PROBLEM SETUP (Sidebar)
+    # 1. PROBLEM SETUP (Sidebar) - The user defines the core problem
     # =========================================================================
     st.sidebar.header("1. Problem Setup")
     target_variable = st.sidebar.selectbox(
         "Select Your Target Variable (Y)", df.columns,
         help="This is the column you want the model to predict."
     )
+    # Important: Drop rows where the target is missing, as they are unusable.
     df.dropna(subset=[target_variable], inplace=True)
     if df.empty:
         st.error(f"Error: After removing rows with missing targets, the DataFrame is empty. Please clean the '{target_variable}' column.")
         return
 
-    # Auto-detect problem type
+    # Auto-detect problem type, but let the user override it.
     target_dtype = df[target_variable].dtype
     if pd.api.types.is_numeric_dtype(target_dtype) and (df[target_variable].nunique() > 25 or 'float' in str(target_dtype)):
         default_problem = "Regression"
@@ -1054,28 +1055,32 @@ def render_ml_modeler_page():
     y = df[target_variable]
 
     # =========================================================================
-    # 2. CONFIGURATION EXPANDERS (Sidebar)
+    # 2. CONFIGURATION OPTIONS (Sidebar) - The user configures the experiment
     # =========================================================================
-    with st.sidebar.expander("2. Data Splitting & Preprocessing"):
+    
+    # --- Expander for Data Splitting and Preprocessing ---
+    with st.sidebar.expander("⚙️ Configure Preprocessing & Data Split"):
         st.markdown("**Data Splitting**")
-        test_size = st.slider("Test Set Size", 0.1, 0.5, 0.2, 0.05)
-        random_state = st.number_input("Random Seed", value=42, help="Ensures reproducibility.")
+        test_size = st.slider("Test Set Size", 0.1, 0.5, 0.2, 0.05, help="The proportion of the dataset to include in the test split.")
+        random_state = st.number_input("Random Seed", value=42, help="A fixed seed ensures that the same random split is generated every time, making results reproducible.")
         
         stratify = False
         if problem_type == "Classification":
             stratify = st.checkbox("Use Stratified Sampling", value=True, help="Ensures class proportions are the same in train/test splits. Highly recommended for classification.")
 
+        st.markdown("---")
         st.markdown("**Preprocessing for Numeric Features**")
-        numeric_imputer_strategy = st.selectbox("Imputation Method", ["median", "mean"], help="How to fill missing numeric values.")
-        numeric_scaler = st.selectbox("Scaling Method", ["StandardScaler", "MinMaxScaler", "None"], help="Method to scale numeric features.")
+        numeric_imputer_strategy = st.selectbox("Numeric Imputation", ["median", "mean"], index=0, help="How to fill missing numeric values.")
+        numeric_scaler = st.selectbox("Numeric Scaling", ["StandardScaler", "MinMaxScaler", "None"], index=0, help="Method to scale numeric features. StandardScaler is recommended.")
 
+        st.markdown("---")
         st.markdown("**Preprocessing for Categorical Features**")
-        categorical_imputer_strategy = st.selectbox("Imputation Method", ["most_frequent", "constant"], help="How to fill missing categorical values.")
-        # OneHotEncoder is generally the best choice for nominal data.
+        categorical_imputer_strategy = st.selectbox("Categorical Imputation", ["most_frequent", "constant"], index=0, help="How to fill missing categorical values.")
         st.info("Categorical features will be One-Hot Encoded.")
 
 
-    with st.sidebar.expander("3. Model Selection & Hyperparameters"):
+    # --- Expander for Model Selection and Hyperparameters ---
+    with st.sidebar.expander("🧠 Select Model & Tune Hyperparameters"):
         if problem_type == "Classification":
             model_options = ["Logistic Regression", "Random Forest Classifier", "Support Vector Machine"]
         else:
@@ -1092,22 +1097,23 @@ def render_ml_modeler_page():
             params['solver'] = st.selectbox("Solver", ['liblinear', 'lbfgs', 'saga'])
             params['max_iter'] = st.number_input("Max Iterations", 100, 2000, 1000)
 
-        elif selected_model_name == "Random Forest Classifier" or selected_model_name == "Random Forest Regressor":
-            params['n_estimators'] = st.slider("Number of Trees", 10, 1000, 100, 10)
-            params['max_depth'] = st.slider("Max Depth of Trees", 2, 50, 10, 1, help="Set to 0 for no limit.") or None
+        elif selected_model_name in ["Random Forest Classifier", "Random Forest Regressor"]:
+            params['n_estimators'] = st.slider("Number of Trees (n_estimators)", 10, 1000, 100, 10)
+            params['max_depth'] = st.slider("Max Depth of Trees (max_depth)", 2, 50, 10, 1)
             params['min_samples_split'] = st.slider("Min Samples to Split a Node", 2, 20, 2, 1)
-            params['criterion'] = st.selectbox("Criterion", ["gini", "entropy"] if problem_type=="Classification" else ["squared_error", "absolute_error"])
+            if problem_type == "Classification":
+                params['criterion'] = st.selectbox("Criterion", ["gini", "entropy"])
+            else:
+                 params['criterion'] = st.selectbox("Criterion", ["squared_error", "absolute_error"])
         
-        elif selected_model_name == "Support Vector Machine" or selected_model_name == "SVR":
+        elif selected_model_name in ["Support Vector Machine", "SVR"]:
             params['C'] = st.slider("Regularization (C)", 0.01, 100.0, 1.0, 0.01)
             params['kernel'] = st.selectbox("Kernel", ['rbf', 'linear', 'poly', 'sigmoid'])
             if params['kernel'] == 'poly':
                 params['degree'] = st.slider("Degree (for poly kernel)", 2, 5, 3, 1)
         
-        # Linear Regression has no major hyperparameters to tune via UI.
         elif selected_model_name == "Linear Regression":
             st.info("Linear Regression has no significant hyperparameters to tune from this UI.")
-
 
     # =========================================================================
     # 3. EXECUTION AND RESULTS
@@ -1138,23 +1144,30 @@ def render_ml_modeler_page():
                 ])
             
             # --- Instantiate Model based on user choices ---
-            if selected_model_name == "Logistic Regression":
-                model = LogisticRegression(random_state=random_state, **params)
-            elif selected_model_name == "Random Forest Classifier":
-                model = RandomForestClassifier(random_state=random_state, **params)
-            elif selected_model_name == "Support Vector Machine":
-                model = SVC(probability=True, random_state=random_state, **params)
-            elif selected_model_name == "Linear Regression":
-                model = LinearRegression(**params)
-            elif selected_model_name == "Random Forest Regressor":
-                model = RandomForestRegressor(random_state=random_state, **params)
-            elif selected_model_name == "SVR":
-                model = SVR(**params)
+            # **params passes all the collected hyperparameters to the model
+            model_class_map = {
+                "Logistic Regression": LogisticRegression,
+                "Random Forest Classifier": RandomForestClassifier,
+                "Support Vector Machine": SVC,
+                "Linear Regression": LinearRegression,
+                "Random Forest Regressor": RandomForestRegressor,
+                "SVR": SVR
+            }
+            ModelClass = model_class_map[selected_model_name]
+            
+            # Add random_state to params if the model accepts it
+            model_init_params = params
+            if 'random_state' in ModelClass().get_params():
+                model_init_params['random_state'] = random_state
+            if selected_model_name == "Support Vector Machine":
+                 model_init_params['probability'] = True
+
+            model = ModelClass(**model_init_params)
 
             # --- Create and Train the Full Pipeline ---
             ml_pipeline = Pipeline(steps=[('preprocessor', preprocessor), ('model', model)])
             
-            stratify_option = y if (problem_type == "Classification" and stratify) else None
+            stratify_option = y if (problem_type == "Classification" and stratify and all(y.value_counts() >= 2)) else None
             X_train, X_test, y_train, y_test = train_test_split(
                 X, y, test_size=test_size, random_state=random_state, stratify=stratify_option
             )
@@ -1164,14 +1177,37 @@ def render_ml_modeler_page():
 
         st.success("Model trained successfully!")
         
-        # --- Display Results (This part remains largely the same) ---
+        # --- Display Results ---
         st.header(f"Results for {selected_model_name}")
-        # ... (Your existing, excellent result display code) ...
-        # NOTE: Make sure to use `ml_pipeline.named_steps['model']` if you need to access the model itself.
-        # For example, for feature importances:
-        # final_model = ml_pipeline.named_steps['model']
-        # if hasattr(final_model, 'feature_importances_'):
-        #     ... your feature importance code ...
+
+        if problem_type == "Classification":
+            # Display metrics... (your existing result code is great here)
+            # Make sure to use the fix for the confusion matrix
+            st.subheader("Confusion Matrix")
+            fig, ax = plt.subplots()
+            class_labels = ml_pipeline.named_steps['model'].classes_
+            cm = confusion_matrix(y_test, y_pred, labels=class_labels)
+            sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax, 
+                        xticklabels=class_labels, yticklabels=class_labels)
+            ax.set_xlabel('Predicted')
+            ax.set_ylabel('Actual')
+            st.pyplot(fig)
+            
+            st.subheader("Classification Report")
+            st.text(classification_report(y_test, y_pred, labels=class_labels, zero_division=0))
+
+        else: # Regression
+            # Display metrics...
+            st.subheader("Regression Metrics")
+            col1, col2 = st.columns(2)
+            mse = mean_squared_error(y_test, y_pred)
+            r2 = r2_score(y_test, y_pred)
+            with col1:
+                st.metric(label="R-squared (R²)", value=f"{r2:.3f}")
+            with col2:
+                st.metric(label="Mean Squared Error (MSE)", value=f"{mse:.3f}")
+
+        # ... (Add your other result visualizations like feature importance here) ...
 
 # ---------------------------------- 5.9 DOWNLOAD PAGE -------------------------------------------
 def render_download_page():
