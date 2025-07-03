@@ -1015,12 +1015,26 @@ def render_column_management_page():
 # ==================================================================================================
 # FINAL, USER-DRIVEN ML MODELER PAGE (REVISED)
 # ==================================================================================================
-# --- STEP 1: Define the Goal ---
-st.sidebar.header("1. Define Your Goal")
-target_variable = st.sidebar.selectbox(
-    "Select the Target Column (Y)", df.columns,
-    help="This is the column you want the model to predict."
-)
+if st.session_state.df is not None:
+
+    # Create a local, convenient variable `df` from the session state
+    df = st.session_state.df
+
+    # Now, all the code below is safe to run.
+    # Notice it is all indented one level deeper.
+
+    # --- STEP 1: Define the Goal ---
+    st.sidebar.header("1. Define Your Goal")
+    # This line is now safe, because this block only runs when df exists.
+    target_variable = st.sidebar.selectbox(
+        "Select the Target Column (Y)", df.columns,
+        help="This is the column you want the model to predict."
+    )
+    # ... and the rest of your modeling code also goes inside this indented block ...
+
+else:
+    # Optionally, show a message to the user when no data is loaded.
+    st.info("Please upload a CSV file to begin the modeling process.")
 df.dropna(subset=[target_variable], inplace=True)
 if df.empty:
     st.error(f"Error: After removing rows with missing targets, the DataFrame is empty. Please clean the '{target_variable}' column.")
