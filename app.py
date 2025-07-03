@@ -1002,12 +1002,12 @@ def render_column_management_page():
 
 
 # ==================================================================================================
-# FINAL, USER-DRIVEN ML MODELER PAGE
+# FINAL, USER-DRIVEN ML MODELER PAGE (REVISED)
 # ==================================================================================================
 def render_ml_modeler_page():
-    """Renders a page where the USER explicitly selects a model and its parameters."""
+    """Renders a page where the USER must explicitly select a model to see any further options."""
     st.header("🤖 Machine Learning Modeler")
-    st.markdown("Select a model from the list to see its specific options and tune its hyperparameters.")
+    st.markdown("Please use the sidebar to configure and train your model.")
 
     if st.session_state.df is None:
         st.warning("Please upload and clean a file first.")
@@ -1033,124 +1033,113 @@ def render_ml_modeler_page():
     problem_type = "Regression" if pd.api.types.is_numeric_dtype(df[target_variable].dtype) and df[target_variable].nunique() > 25 else "Classification"
     st.sidebar.info(f"Problem Type Detected: **{problem_type}**")
 
-
     # --- STEP 2: The User MUST Select a Model ---
     st.sidebar.header("2. Choose Your Model")
+    
+    # *** THE CRITICAL FIX IS HERE ***
+    # We add a placeholder "--Select--" option. Nothing will happen until the user changes this.
+    placeholder_text = "--Select an Algorithm--"
     if problem_type == "Classification":
-        model_options = ["Logistic Regression", "Random Forest Classifier", "Support Vector Machine"]
+        model_options = [placeholder_text, "Logistic Regression", "Random Forest Classifier", "Support Vector Machine"]
     else: # Regression
-        model_options = ["Linear Regression", "Random Forest Regressor", "SVR"]
+        model_options = [placeholder_text, "Linear Regression", "Random Forest Regressor", "SVR"]
 
     selected_model_name = st.sidebar.selectbox(
         "Select an algorithm from the list:",
-        model_options
+        model_options,
+        index=0  # Default to the placeholder
     )
 
-    # --- STEP 3: Display ONLY the relevant hyperparameters for the SELECTED model ---
-    st.sidebar.header("3. Tune Model Hyperparameters")
-    params = {}
-    
-    if selected_model_name == "Logistic Regression":
-        st.sidebar.markdown("Configure parameters for **Logistic Regression**.")
-        params['C'] = st.sidebar.slider("Regularization (C)", 0.01, 10.0, 1.0, 0.01)
-        params['solver'] = st.sidebar.selectbox("Solver", ['liblinear', 'lbfgs', 'saga'])
-
-    elif selected_model_name in ["Random Forest Classifier", "Random Forest Regressor"]:
-        st.sidebar.markdown(f"Configure parameters for **{selected_model_name}**.")
-        params['n_estimators'] = st.sidebar.slider("Number of Trees", 10, 1000, 100, 10)
-        params['max_depth'] = st.sidebar.slider("Max Depth of Trees", 2, 50, 10, 1)
-
-    elif selected_model_name in ["Support Vector Machine", "SVR"]:
-        st.sidebar.markdown(f"Configure parameters for **{selected_model_name}**.")
-        params['C'] = st.sidebar.slider("Regularization (C)", 0.01, 100.0, 1.0, 0.01)
-        params['kernel'] = st.sidebar.selectbox("Kernel", ['rbf', 'linear', 'poly'])
-
-    elif selected_model_name == "Linear Regression":
-        st.sidebar.info("Linear Regression has no major hyperparameters to tune here.")
-
-
-    # --- STEP 4 (Optional): Advanced Settings ---
-    with st.sidebar.expander("Advanced Settings (Data Split & Preprocessing)"):
-        test_size = st.slider("Test Set Size", 0.1, 0.5, 0.2, 0.05)
-        random_state = st.number_input("Random Seed", value=42)
-        if problem_type == "Classification":
-            st.info("Stratified sampling will be used for classification.")
-    
-    # --- STEP 5: Train the Model ---
-    if st.button("🚀 Train The Selected Model", type="primary", use_container_width=True):
-        st.header(f"Training: {selected_model_name}")
-        with st.spinner("Preparing data and training the model..."):
-            
-            # Prepare data
-            all_columns = df.columns.tolist()
-            all_columns.remove(target_variable)
-            X = df[all_columns]
-            y = df[target_variable]
-            
-            # Define preprocessing pipelines
-            numeric_features = X.select_dtypes(include=np.number).columns.tolist()
-            categorical_features = X.select_dtypes(include=['object', 'category', 'bool']).columns.tolist()
-
-            numeric_transformer = Pipeline(steps=[
-                ('imputer', SimpleImputer(strategy='median')),
-                ('scaler', StandardScaler())])
-            
-            categorical_transformer = Pipeline(steps=[
-                ('imputer', SimpleImputer(strategy='most_frequent')),
-                ('onehot', OneHotEncoder(handle_unknown='ignore'))])
-
-            preprocessor = ColumnTransformer(
-                transformers=[
-                    ('num', numeric_transformer, numeric_features),
-                    ('cat', categorical_transformer, categorical_features)])
-            
-            # Get the correct model class based on the user's selection
-            model_class_map = {
-                "Logistic Regression": LogisticRegression, "Random Forest Classifier": RandomForestClassifier, "Support Vector Machine": SVC,
-                "Linear Regression": LinearRegression, "Random Forest Regressor": RandomForestRegressor, "SVR": SVR
-            }
-            ModelClass = model_class_map[selected_model_name]
-            
-            # Add parameters that are not user-tunable but important for reproducibility/functionality
-            if 'random_state' in ModelClass().get_params(): params['random_state'] = random_state
-            if selected_model_name == "Support Vector Machine": params['probability'] = True
-            
-            model = ModelClass(**params)
-            
-            # Create and train the full pipeline
-            ml_pipeline = Pipeline(steps=[('preprocessor', preprocessor), ('model', model)])
-            
-            stratify_option = y if problem_type == "Classification" else None
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state, stratify=stratify_option)
-            
-            ml_pipeline.fit(X_train, y_train)
-            
-        st.success("Model training complete!")
+    # --- STEP 3 & BEYOND: ONLY show these options IF a model has been chosen ---
+    if selected_model_name != placeholder_text:
+        st.sidebar.header("3. Tune Model Hyperparameters")
+        params = {}
         
-        # --- Display Results ---
-        st.header("Model Performance")
-        # (Your existing code for displaying results like confusion matrix, metrics, etc., goes here)
-        # For example:
-        if problem_type == "Classification":
-            y_pred = ml_pipeline.predict(X_test)
-            st.subheader("Confusion Matrix")
-            fig, ax = plt.subplots()
-            class_labels = ml_pipeline.named_steps['model'].classes_
-            cm = confusion_matrix(y_test, y_pred, labels=class_labels)
-            sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax, xticklabels=class_labels, yticklabels=class_labels)
-            st.pyplot(fig)
-            st.subheader("Classification Report")
-            st.text(classification_report(y_test, y_pred, labels=class_labels, zero_division=0))
-        else: # Regression
-            y_pred = ml_pipeline.predict(X_test)
-            st.subheader("Regression Metrics")
-            col1, col2 = st.columns(2)
-            mse = mean_squared_error(y_test, y_pred)
-            r2 = r2_score(y_test, y_pred)
-            with col1:
-                st.metric(label="R-squared (R²)", value=f"{r2:.3f}")
-            with col2:
-                st.metric(label="Mean Squared Error (MSE)", value=f"{mse:.3f}")
+        # Display hyperparameters based on the user's explicit selection
+        if selected_model_name == "Logistic Regression":
+            params['C'] = st.sidebar.slider("Regularization (C)", 0.01, 10.0, 1.0, 0.01)
+            params['solver'] = st.sidebar.selectbox("Solver", ['liblinear', 'lbfgs', 'saga'])
+
+        elif selected_model_name in ["Random Forest Classifier", "Random Forest Regressor"]:
+            params['n_estimators'] = st.sidebar.slider("Number of Trees", 10, 1000, 100, 10)
+            params['max_depth'] = st.sidebar.slider("Max Depth of Trees", 2, 50, 10, 1)
+
+        elif selected_model_name in ["Support Vector Machine", "SVR"]:
+            params['C'] = st.sidebar.slider("Regularization (C)", 0.01, 100.0, 1.0, 0.01)
+            params['kernel'] = st.sidebar.selectbox("Kernel", ['rbf', 'linear', 'poly'])
+        
+        # ... (and so on for other models)
+
+        # Optional Advanced Settings are also hidden until a model is selected
+        with st.sidebar.expander("Advanced Settings (Data Split & Preprocessing)"):
+            test_size = st.slider("Test Set Size", 0.1, 0.5, 0.2, 0.05)
+            random_state = st.number_input("Random Seed", value=42)
+            if problem_type == "Classification":
+                st.info("Stratified sampling will be used for classification.")
+        
+        # The Train button is the final step, only visible after model selection
+        if st.button(f"🚀 Train {selected_model_name}", type="primary", use_container_width=True):
+            # --- This is the training logic from before, it runs only when the button is clicked ---
+            with st.spinner("Preparing data and training the model..."):
+                # (The rest of the training and result display code remains the same as before)
+                all_columns = df.columns.tolist()
+                all_columns.remove(target_variable)
+                X = df[all_columns]
+                y = df[target_variable]
+                
+                # ... (preprocessing and pipeline code) ...
+                numeric_features = X.select_dtypes(include=np.number).columns.tolist()
+                categorical_features = X.select_dtypes(include=['object', 'category', 'bool']).columns.tolist()
+
+                numeric_transformer = Pipeline(steps=[('imputer', SimpleImputer(strategy='median')), ('scaler', StandardScaler())])
+                categorical_transformer = Pipeline(steps=[('imputer', SimpleImputer(strategy='most_frequent')), ('onehot', OneHotEncoder(handle_unknown='ignore'))])
+                preprocessor = ColumnTransformer(transformers=[('num', numeric_transformer, numeric_features), ('cat', categorical_transformer, categorical_features)])
+                
+                model_class_map = {
+                    "Logistic Regression": LogisticRegression, "Random Forest Classifier": RandomForestClassifier, "Support Vector Machine": SVC,
+                    "Linear Regression": LinearRegression, "Random Forest Regressor": RandomForestRegressor, "SVR": SVR
+                }
+                ModelClass = model_class_map[selected_model_name]
+                
+                if 'random_state' in ModelClass().get_params(): params['random_state'] = random_state
+                if selected_model_name == "Support Vector Machine": params['probability'] = True
+                
+                model = ModelClass(**params)
+                ml_pipeline = Pipeline(steps=[('preprocessor', preprocessor), ('model', model)])
+                
+                stratify_option = y if problem_type == "Classification" else None
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state, stratify=stratify_option)
+                
+                ml_pipeline.fit(X_train, y_train)
+                
+            st.success("Model training complete!")
+
+            # ... (Display results code) ...
+            st.header("Model Performance")
+            if problem_type == "Classification":
+                y_pred = ml_pipeline.predict(X_test)
+                st.subheader("Confusion Matrix")
+                fig, ax = plt.subplots()
+                class_labels = ml_pipeline.named_steps['model'].classes_
+                cm = confusion_matrix(y_test, y_pred, labels=class_labels)
+                sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax, xticklabels=class_labels, yticklabels=class_labels)
+                st.pyplot(fig)
+                st.subheader("Classification Report")
+                st.text(classification_report(y_test, y_pred, labels=class_labels, zero_division=0))
+            else: # Regression
+                y_pred = ml_pipeline.predict(X_test)
+                st.subheader("Regression Metrics")
+                col1, col2 = st.columns(2)
+                mse = mean_squared_error(y_test, y_pred)
+                r2 = r2_score(y_test, y_pred)
+                with col1:
+                    st.metric(label="R-squared (R²)", value=f"{r2:.3f}")
+                with col2:
+                    st.metric(label="Mean Squared Error (MSE)", value=f"{mse:.3f}")
+    
+    else:
+        # This message guides the user on what to do next.
+        st.info("Please select a model from the list in the sidebar to configure its parameters and train it.")
 
 # ---------------------------------- 5.9 DOWNLOAD PAGE -------------------------------------------
 def render_download_page():
