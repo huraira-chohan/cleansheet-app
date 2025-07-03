@@ -6,6 +6,10 @@ import io
 import base64
 from typing import List, Dict, Callable
 from word2number import w2n
+# --- Machine Learning & Preprocessing Imports ---
+from sklearn.preprocessing import MinMaxScaler, StandardScaler, OneHotEncoder
+from sklearn.impute import SimpleImputer # <--- ADD THIS LINE
+from sklearn.model_selection import train_test_split
 # --- Visualization Imports ---
 import plotly.express as px
 import seaborn as sns
