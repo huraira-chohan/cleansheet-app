@@ -1010,7 +1010,7 @@ def render_ml_modeler_page():
         st.warning("Please upload and clean a file first.")
         return
 
-    df = st.session_state.df.copy() # Use a copy to avoid altering the main dataframe
+    df = st.session_state.df.copy()
 
     # --- 1. SETUP UI (in sidebar) ---
     st.sidebar.header("ML Modeler Setup")
@@ -1022,10 +1022,17 @@ def render_ml_modeler_page():
         help="This is the column you want the model to predict."
     )
 
+    # *** FIX PART 1: Handle missing values in the target variable BEFORE splitting ***
+    # We drop rows where the target is NaN, as we cannot train on or predict them.
+    df.dropna(subset=[target_variable], inplace=True)
+    
+    if df.empty:
+        st.error(f"After removing rows with missing values in the target column '{target_variable}', the DataFrame is empty. Please choose a different target or clean the data.")
+        return
+
     # 1.2: Automatically Detect Problem Type
     target_dtype = df[target_variable].dtype
     if pd.api.types.is_numeric_dtype(target_dtype):
-        # Heuristic: If more than 25 unique values OR it's a float, assume regression.
         if df[target_variable].nunique() > 25 or 'float' in str(target_dtype):
             default_problem = "Regression"
         else:
@@ -1068,16 +1075,13 @@ def render_ml_modeler_page():
 
     selected_model = st.sidebar.selectbox("4. Select a Model", model_list)
 
-    # --- Hyperparameter Tuning ---
     params = {}
     st.sidebar.subheader("Hyperparameters")
     if selected_model == "Random Forest Classifier" or selected_model == "Random Forest Regressor":
         params['n_estimators'] = st.sidebar.slider("Number of Trees", 50, 500, 100, 10)
         params['max_depth'] = st.sidebar.slider("Max Depth of Trees", 2, 20, 5, 1)
-
     elif selected_model == "Logistic Regression":
         params['C'] = st.sidebar.slider("Regularization (C)", 0.01, 10.0, 1.0, 0.01)
-
     elif selected_model == "Support Vector Machine" or selected_model == "SVR":
         params['C'] = st.sidebar.slider("Regularization (C)", 0.01, 10.0, 1.0, 0.01)
 
@@ -1086,15 +1090,20 @@ def render_ml_modeler_page():
         with st.spinner("Training in progress... This may take a moment."):
             
             # --- Preprocessing Pipeline ---
-            # Identify categorical and numerical features IN THE SELECTED 'X'
             numeric_features = X.select_dtypes(include=np.number).columns.tolist()
             categorical_features = X.select_dtypes(include=['object', 'category', 'bool']).columns.tolist()
+            
+            # *** FIX PART 2: Add SimpleImputer to the pipelines ***
+            # This handles any NaNs a user might have left in the feature columns
+            numeric_transformer = Pipeline(steps=[
+                ('imputer', SimpleImputer(strategy='median')), # Fills missing values with the median
+                ('scaler', StandardScaler())
+            ])
+            categorical_transformer = Pipeline(steps=[
+                ('imputer', SimpleImputer(strategy='most_frequent')), # Fills missing values with the mode
+                ('onehot', OneHotEncoder(handle_unknown='ignore'))
+            ])
 
-            # Create the preprocessing pipelines for both numeric and categorical data
-            numeric_transformer = Pipeline(steps=[('scaler', StandardScaler())])
-            categorical_transformer = Pipeline(steps=[('onehot', OneHotEncoder(handle_unknown='ignore'))])
-
-            # Create a preprocessor object using ColumnTransformer
             preprocessor = ColumnTransformer(
                 transformers=[
                     ('num', numeric_transformer, numeric_features),
@@ -1117,9 +1126,7 @@ def render_ml_modeler_page():
                 elif selected_model == "SVR":
                     model = SVR(C=params['C'])
 
-            # --- Create and train the full ML pipeline ---
-            ml_pipeline = Pipeline(steps=[('preprocessor', preprocessor),
-                                          ('classifier', model)])
+            ml_pipeline = Pipeline(steps=[('preprocessor', preprocessor), ('classifier', model)])
             
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
             
@@ -1128,9 +1135,9 @@ def render_ml_modeler_page():
 
             st.success("Model trained successfully!")
             
-            # --- 4. DISPLAY RESULTS ---
+            # --- 4. DISPLAY RESULTS (No changes needed here) ---
             st.header(f"Results for {selected_model}")
-            
+            # ... (the rest of the result display code is correct) ...
             if problem_type == "Classification":
                 col1, col2 = st.columns(2)
                 with col1:
@@ -1138,19 +1145,20 @@ def render_ml_modeler_page():
                     st.metric(label="Accuracy", value=f"{accuracy:.2%}")
                 
                 st.subheader("Classification Report")
-                report = classification_report(y_test, y_pred, output_dict=True)
+                report = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
                 st.dataframe(pd.DataFrame(report).transpose())
                 
                 st.subheader("Confusion Matrix")
-                cm = confusion_matrix(y_test, y_pred)
                 fig, ax = plt.subplots()
+                # Use the actual classes from the pipeline for correct labels
+                class_labels = ml_pipeline.classes_ if hasattr(ml_pipeline, 'classes_') else y.unique()
+                cm = confusion_matrix(y_test, y_pred, labels=class_labels)
                 sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax,
-                            xticklabels=ml_pipeline.classes_, yticklabels=ml_pipeline.classes_)
+                            xticklabels=class_labels, yticklabels=class_labels)
                 ax.set_xlabel('Predicted')
                 ax.set_ylabel('Actual')
                 st.pyplot(fig)
-
-            else: # Regression
+            else:
                 col1, col2 = st.columns(2)
                 mse = mean_squared_error(y_test, y_pred)
                 r2 = r2_score(y_test, y_pred)
@@ -1168,10 +1176,8 @@ def render_ml_modeler_page():
                 ax.set_title('Actual vs. Predicted')
                 st.pyplot(fig)
             
-            # --- Feature Importance (for tree-based models) ---
             if hasattr(model, 'feature_importances_'):
                 st.subheader("Feature Importance")
-                # Get feature names after one-hot encoding
                 try:
                     ohe_feature_names = ml_pipeline.named_steps['preprocessor'].named_transformers_['cat'].get_feature_names_out(categorical_features)
                     all_feature_names = np.concatenate([numeric_features, ohe_feature_names])
