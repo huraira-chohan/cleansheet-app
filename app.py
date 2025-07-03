@@ -30,6 +30,41 @@ from sklearn.metrics import accuracy_score, confusion_matrix, classification_rep
 from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.svm import SVC, SVR
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Preprocessing
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.impute import SimpleImputer
+
+# Models - CLASSIFICATION
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.svm import SVC
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.naive_bayes import GaussianNB
+from sklearn.neural_network import MLPClassifier
+import xgboost as xgb
+import lightgbm as lgb
+
+# Models - REGRESSION
+from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.svm import SVR
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.neural_network import MLPRegressor
+
+# Metrics
+from sklearn.metrics import classification_report, confusion_matrix, mean_squared_error, r2_score
 # ==================================================================================================
 # 2. APPLICATION CONFIGURATION AND CONSTANTS
 # ==================================================================================================
@@ -1004,142 +1039,224 @@ def render_column_management_page():
 # ==================================================================================================
 # FINAL, USER-DRIVEN ML MODELER PAGE (REVISED)
 # ==================================================================================================
-def render_ml_modeler_page():
-    """Renders a page where the USER must explicitly select a model to see any further options."""
-    st.header("🤖 Machine Learning Modeler")
-    st.markdown("Please use the sidebar to configure and train your model.")
+# --- STEP 1: Define the Goal ---
+st.sidebar.header("1. Define Your Goal")
+target_variable = st.sidebar.selectbox(
+    "Select the Target Column (Y)", df.columns,
+    help="This is the column you want the model to predict."
+)
+df.dropna(subset=[target_variable], inplace=True)
+if df.empty:
+    st.error(f"Error: After removing rows with missing targets, the DataFrame is empty. Please clean the '{target_variable}' column.")
+    return
 
-    if st.session_state.df is None:
-        st.warning("Please upload and clean a file first.")
-        return
+problem_type = "Regression" if pd.api.types.is_numeric_dtype(df[target_variable].dtype) and df[target_variable].nunique() > 25 else "Classification"
+st.sidebar.info(f"Problem Type Detected: **{problem_type}**")
 
-    df = st.session_state.df.copy()
+# --- STEP 2: The User MUST Select a Model ---
+st.sidebar.header("2. Choose Your Model")
 
-    # =========================================================================
-    # THE UI WORKFLOW IN THE SIDEBAR
-    # =========================================================================
+placeholder_text = "--Select an Algorithm--"
+if problem_type == "Classification":
+    model_options = [
+        placeholder_text, "Logistic Regression", "Random Forest Classifier", "Gradient Boosting", 
+        "XGBoost Classifier", "LightGBM Classifier", "Support Vector Machine", 
+        "K-Nearest Neighbors", "Decision Tree Classifier", "Gaussian Naive Bayes", "MLP Classifier"
+    ]
+else: # Regression
+    model_options = [
+        placeholder_text, "Linear Regression", "Ridge Regression", "Lasso Regression", "ElasticNet",
+        "Random Forest Regressor", "Gradient Boosting Regressor", "XGBoost Regressor", 
+        "LightGBM Regressor", "SVR", "K-Neighbors Regressor", "Decision Tree Regressor", "MLP Regressor"
+    ]
 
-    # --- STEP 1: Define the Goal ---
-    st.sidebar.header("1. Define Your Goal")
-    target_variable = st.sidebar.selectbox(
-        "Select the Target Column (Y)", df.columns,
-        help="This is the column you want the model to predict."
-    )
-    df.dropna(subset=[target_variable], inplace=True)
-    if df.empty:
-        st.error(f"Error: After removing rows with missing targets, the DataFrame is empty. Please clean the '{target_variable}' column.")
-        return
-        
-    problem_type = "Regression" if pd.api.types.is_numeric_dtype(df[target_variable].dtype) and df[target_variable].nunique() > 25 else "Classification"
-    st.sidebar.info(f"Problem Type Detected: **{problem_type}**")
+selected_model_name = st.sidebar.selectbox(
+    "Select an algorithm from the list:",
+    model_options,
+    index=0  # Default to the placeholder
+)
 
-    # --- STEP 2: The User MUST Select a Model ---
-    st.sidebar.header("2. Choose Your Model")
-    
-    # *** THE CRITICAL FIX IS HERE ***
-    # We add a placeholder "--Select--" option. Nothing will happen until the user changes this.
-    placeholder_text = "--Select an Algorithm--"
-    if problem_type == "Classification":
-        model_options = [placeholder_text, "Logistic Regression", "Random Forest Classifier", "Support Vector Machine"]
-    else: # Regression
-        model_options = [placeholder_text, "Linear Regression", "Random Forest Regressor", "SVR"]
+# --- STEP 3 & BEYOND: ONLY show these options IF a model has been chosen ---
+if selected_model_name != placeholder_text:
+    st.sidebar.header("3. Tune Model Hyperparameters")
+    params = {}
 
-    selected_model_name = st.sidebar.selectbox(
-        "Select an algorithm from the list:",
-        model_options,
-        index=0  # Default to the placeholder
-    )
+    # Display hyperparameters based on the user's explicit selection
+    if selected_model_name == "Logistic Regression":
+        params['C'] = st.sidebar.slider("Regularization (C)", 0.01, 10.0, 1.0, 0.01)
+        params['solver'] = st.sidebar.selectbox("Solver", ['liblinear', 'lbfgs', 'saga'])
+        params['max_iter'] = st.sidebar.slider("Max Iterations", 100, 1000, 100, 50)
 
-    # --- STEP 3 & BEYOND: ONLY show these options IF a model has been chosen ---
-    if selected_model_name != placeholder_text:
-        st.sidebar.header("3. Tune Model Hyperparameters")
-        params = {}
-        
-        # Display hyperparameters based on the user's explicit selection
-        if selected_model_name == "Logistic Regression":
-            params['C'] = st.sidebar.slider("Regularization (C)", 0.01, 10.0, 1.0, 0.01)
-            params['solver'] = st.sidebar.selectbox("Solver", ['liblinear', 'lbfgs', 'saga'])
+    elif selected_model_name in ["Random Forest Classifier", "Random Forest Regressor"]:
+        params['n_estimators'] = st.sidebar.slider("Number of Trees", 10, 1000, 100, 10)
+        params['max_depth'] = st.sidebar.slider("Max Depth of Trees", 2, 50, 10, 1)
+        params['min_samples_leaf'] = st.sidebar.slider("Min Samples per Leaf", 1, 20, 1, 1)
 
-        elif selected_model_name in ["Random Forest Classifier", "Random Forest Regressor"]:
-            params['n_estimators'] = st.sidebar.slider("Number of Trees", 10, 1000, 100, 10)
-            params['max_depth'] = st.sidebar.slider("Max Depth of Trees", 2, 50, 10, 1)
+    elif selected_model_name in ["Gradient Boosting", "Gradient Boosting Regressor"]:
+        params['n_estimators'] = st.sidebar.slider("Number of Estimators", 10, 1000, 100, 10)
+        params['learning_rate'] = st.sidebar.slider("Learning Rate", 0.01, 0.5, 0.1, 0.01)
+        params['max_depth'] = st.sidebar.slider("Max Depth", 2, 15, 3, 1)
 
-        elif selected_model_name in ["Support Vector Machine", "SVR"]:
-            params['C'] = st.sidebar.slider("Regularization (C)", 0.01, 100.0, 1.0, 0.01)
-            params['kernel'] = st.sidebar.selectbox("Kernel", ['rbf', 'linear', 'poly'])
-        
-        # ... (and so on for other models)
+    elif selected_model_name in ["XGBoost Classifier", "XGBoost Regressor"]:
+        params['n_estimators'] = st.sidebar.slider("Number of Estimators", 10, 1000, 100, 10)
+        params['learning_rate'] = st.sidebar.slider("Learning Rate", 0.01, 0.5, 0.1, 0.01)
+        params['max_depth'] = st.sidebar.slider("Max Depth", 2, 15, 3, 1)
+        params['subsample'] = st.sidebar.slider("Subsample", 0.5, 1.0, 1.0, 0.1)
 
-        # Optional Advanced Settings are also hidden until a model is selected
-        with st.sidebar.expander("Advanced Settings (Data Split & Preprocessing)"):
-            test_size = st.slider("Test Set Size", 0.1, 0.5, 0.2, 0.05)
-            random_state = st.number_input("Random Seed", value=42)
-            if problem_type == "Classification":
-                st.info("Stratified sampling will be used for classification.")
-        
-        # The Train button is the final step, only visible after model selection
-        if st.button(f"🚀 Train {selected_model_name}", type="primary", use_container_width=True):
-            # --- This is the training logic from before, it runs only when the button is clicked ---
-            with st.spinner("Preparing data and training the model..."):
-                # (The rest of the training and result display code remains the same as before)
-                all_columns = df.columns.tolist()
-                all_columns.remove(target_variable)
-                X = df[all_columns]
-                y = df[target_variable]
-                
-                # ... (preprocessing and pipeline code) ...
-                numeric_features = X.select_dtypes(include=np.number).columns.tolist()
-                categorical_features = X.select_dtypes(include=['object', 'category', 'bool']).columns.tolist()
+    elif selected_model_name in ["LightGBM Classifier", "LightGBM Regressor"]:
+        params['n_estimators'] = st.sidebar.slider("Number of Estimators", 10, 1000, 100, 10)
+        params['learning_rate'] = st.sidebar.slider("Learning Rate", 0.01, 0.5, 0.1, 0.01)
+        params['num_leaves'] = st.sidebar.slider("Number of Leaves", 10, 150, 31, 1)
 
-                numeric_transformer = Pipeline(steps=[('imputer', SimpleImputer(strategy='median')), ('scaler', StandardScaler())])
-                categorical_transformer = Pipeline(steps=[('imputer', SimpleImputer(strategy='most_frequent')), ('onehot', OneHotEncoder(handle_unknown='ignore'))])
-                preprocessor = ColumnTransformer(transformers=[('num', numeric_transformer, numeric_features), ('cat', categorical_transformer, categorical_features)])
-                
-                model_class_map = {
-                    "Logistic Regression": LogisticRegression, "Random Forest Classifier": RandomForestClassifier, "Support Vector Machine": SVC,
-                    "Linear Regression": LinearRegression, "Random Forest Regressor": RandomForestRegressor, "SVR": SVR
-                }
-                ModelClass = model_class_map[selected_model_name]
-                
-                if 'random_state' in ModelClass().get_params(): params['random_state'] = random_state
-                if selected_model_name == "Support Vector Machine": params['probability'] = True
-                
-                model = ModelClass(**params)
-                ml_pipeline = Pipeline(steps=[('preprocessor', preprocessor), ('model', model)])
-                
-                stratify_option = y if problem_type == "Classification" else None
-                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state, stratify=stratify_option)
-                
-                ml_pipeline.fit(X_train, y_train)
-                
-            st.success("Model training complete!")
+    elif selected_model_name in ["Support Vector Machine", "SVR"]:
+        params['C'] = st.sidebar.slider("Regularization (C)", 0.01, 100.0, 1.0, 0.01)
+        params['kernel'] = st.sidebar.selectbox("Kernel", ['rbf', 'linear', 'poly', 'sigmoid'])
+        if params['kernel'] == 'poly':
+            params['degree'] = st.sidebar.slider("Degree (for Poly Kernel)", 2, 5, 3, 1)
 
-            # ... (Display results code) ...
-            st.header("Model Performance")
-            if problem_type == "Classification":
-                y_pred = ml_pipeline.predict(X_test)
-                st.subheader("Confusion Matrix")
-                fig, ax = plt.subplots()
+    elif selected_model_name in ["K-Nearest Neighbors", "K-Neighbors Regressor"]:
+        params['n_neighbors'] = st.sidebar.slider("Number of Neighbors (K)", 1, 30, 5, 1)
+        params['weights'] = st.sidebar.selectbox("Weights", ['uniform', 'distance'])
+        params['metric'] = st.sidebar.selectbox("Metric", ['minkowski', 'euclidean', 'manhattan'])
+
+    elif selected_model_name in ["Decision Tree Classifier", "Decision Tree Regressor"]:
+        if problem_type == "Classification":
+            params['criterion'] = st.sidebar.selectbox("Criterion", ['gini', 'entropy'])
+        else: # Regression
+            params['criterion'] = st.sidebar.selectbox("Criterion", ['squared_error', 'friedman_mse', 'absolute_error'])
+        params['max_depth'] = st.sidebar.slider("Max Depth", 2, 50, 10, 1)
+        params['min_samples_split'] = st.sidebar.slider("Min Samples to Split", 2, 20, 2, 1)
+
+    elif selected_model_name == "Gaussian Naive Bayes":
+        st.sidebar.info("GaussianNB has no major hyperparameters to tune.")
+        pass # No parameters to set
+
+    elif selected_model_name in ["MLP Classifier", "MLP Regressor"]:
+        hidden_layer_sizes_str = st.sidebar.text_input("Hidden Layer Sizes (e.g., 100,50,20)", "100,")
+        params['hidden_layer_sizes'] = tuple(map(int, hidden_layer_sizes_str.split(',')))
+        params['activation'] = st.sidebar.selectbox("Activation Function", ['relu', 'tanh', 'logistic'])
+        params['solver'] = st.sidebar.selectbox("Solver", ['adam', 'sgd'])
+        params['alpha'] = st.sidebar.slider("L2 Penalty (alpha)", 0.0001, 0.1, 0.0001, format="%.4f")
+        params['max_iter'] = st.sidebar.slider("Max Iterations", 200, 2000, 500, 100)
+
+    elif selected_model_name in ["Ridge Regression", "Lasso Regression", "ElasticNet"]:
+        params['alpha'] = st.sidebar.slider("Regularization Strength (alpha)", 0.01, 10.0, 1.0, 0.01)
+        if selected_model_name == "ElasticNet":
+            params['l1_ratio'] = st.sidebar.slider("L1 Ratio", 0.0, 1.0, 0.5, 0.01)
+            
+    # Optional Advanced Settings
+    with st.sidebar.expander("Advanced Settings (Data Split & Preprocessing)"):
+        test_size = st.slider("Test Set Size", 0.1, 0.5, 0.2, 0.05)
+        random_state = st.number_input("Random Seed", value=42)
+        if problem_type == "Classification":
+            st.info("Stratified sampling will be used for classification.")
+
+    # The Train button
+    if st.button(f"🚀 Train {selected_model_name}", type="primary", use_container_width=True):
+        with st.spinner("Preparing data and training the model... This might take a moment."):
+            all_columns = df.columns.tolist()
+            all_columns.remove(target_variable)
+            X = df[all_columns]
+            y = df[target_variable]
+
+            numeric_features = X.select_dtypes(include=np.number).columns.tolist()
+            categorical_features = X.select_dtypes(include=['object', 'category', 'bool']).columns.tolist()
+
+            numeric_transformer = Pipeline(steps=[('imputer', SimpleImputer(strategy='median')), ('scaler', StandardScaler())])
+            categorical_transformer = Pipeline(steps=[('imputer', SimpleImputer(strategy='most_frequent')), ('onehot', OneHotEncoder(handle_unknown='ignore'))])
+            preprocessor = ColumnTransformer(transformers=[('num', numeric_transformer, numeric_features), ('cat', categorical_transformer, categorical_features)])
+
+            model_class_map = {
+                # Classification
+                "Logistic Regression": LogisticRegression, 
+                "Random Forest Classifier": RandomForestClassifier, 
+                "Gradient Boosting": GradientBoostingClassifier,
+                "XGBoost Classifier": xgb.XGBClassifier,
+                "LightGBM Classifier": lgb.LGBMClassifier,
+                "Support Vector Machine": SVC,
+                "K-Nearest Neighbors": KNeighborsClassifier,
+                "Decision Tree Classifier": DecisionTreeClassifier,
+                "Gaussian Naive Bayes": GaussianNB,
+                "MLP Classifier": MLPClassifier,
+                # Regression
+                "Linear Regression": LinearRegression,
+                "Ridge Regression": Ridge,
+                "Lasso Regression": Lasso,
+                "ElasticNet": ElasticNet,
+                "Random Forest Regressor": RandomForestRegressor, 
+                "Gradient Boosting Regressor": GradientBoostingRegressor,
+                "XGBoost Regressor": xgb.XGBRegressor,
+                "LightGBM Regressor": lgb.LGBMRegressor,
+                "SVR": SVR,
+                "K-Neighbors Regressor": KNeighborsRegressor,
+                "Decision Tree Regressor": DecisionTreeRegressor,
+                "MLP Regressor": MLPRegressor
+            }
+            ModelClass = model_class_map[selected_model_name]
+
+            # Set random_state for models that support it for reproducibility
+            if 'random_state' in ModelClass().get_params(): 
+                params['random_state'] = random_state
+            # Special case for SVC to enable probability estimates for reports
+            if selected_model_name == "Support Vector Machine": 
+                params['probability'] = True
+            # Special case for XGBoost to use the sklrean API
+            if "XGBoost" in selected_model_name:
+                params['use_label_encoder'] = False
+                params['eval_metric'] = 'logloss' if problem_type == "Classification" else 'rmse'
+
+
+            model = ModelClass(**params)
+            ml_pipeline = Pipeline(steps=[('preprocessor', preprocessor), ('model', model)])
+
+            stratify_option = y if problem_type == "Classification" else None
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state, stratify=stratify_option)
+            
+            ml_pipeline.fit(X_train, y_train)
+
+        st.success("Model training complete!")
+
+        # Display results
+        st.header("Model Performance")
+        if problem_type == "Classification":
+            y_pred = ml_pipeline.predict(X_test)
+            y_proba = ml_pipeline.predict_proba(X_test)
+
+            st.subheader("Confusion Matrix")
+            fig, ax = plt.subplots()
+            try:
                 class_labels = ml_pipeline.named_steps['model'].classes_
                 cm = confusion_matrix(y_test, y_pred, labels=class_labels)
                 sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax, xticklabels=class_labels, yticklabels=class_labels)
                 st.pyplot(fig)
-                st.subheader("Classification Report")
-                st.text(classification_report(y_test, y_pred, labels=class_labels, zero_division=0))
-            else: # Regression
-                y_pred = ml_pipeline.predict(X_test)
-                st.subheader("Regression Metrics")
-                col1, col2 = st.columns(2)
-                mse = mean_squared_error(y_test, y_pred)
-                r2 = r2_score(y_test, y_pred)
-                with col1:
-                    st.metric(label="R-squared (R²)", value=f"{r2:.3f}")
-                with col2:
-                    st.metric(label="Mean Squared Error (MSE)", value=f"{mse:.3f}")
-    
-    else:
-        # This message guides the user on what to do next.
-        st.info("Please select a model from the list in the sidebar to configure its parameters and train it.")
+            except Exception as e:
+                st.error(f"Could not generate confusion matrix. Error: {e}")
+
+
+            st.subheader("Classification Report")
+            st.text(classification_report(y_test, y_pred, labels=class_labels, zero_division=0))
+        else: # Regression
+            y_pred = ml_pipeline.predict(X_test)
+            st.subheader("Regression Metrics")
+            col1, col2 = st.columns(2)
+            mse = mean_squared_error(y_test, y_pred)
+            r2 = r2_score(y_test, y_pred)
+            with col1:
+                st.metric(label="R-squared (R²)", value=f"{r2:.3f}")
+            with col2:
+                st.metric(label="Mean Squared Error (MSE)", value=f"{mse:.3f}")
+
+            st.subheader("Actual vs. Predicted Values")
+            fig, ax = plt.subplots()
+            ax.scatter(y_test, y_pred, alpha=0.5)
+            ax.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--', lw=2)
+            ax.set_xlabel("Actual Values")
+            ax.set_ylabel("Predicted Values")
+            ax.set_title("Actual vs. Predicted Plot")
+            st.pyplot(fig)
+
+else:
+    st.info("💡 Please select an algorithm from the sidebar to begin training a model.")
 
 # ---------------------------------- 5.9 DOWNLOAD PAGE -------------------------------------------
 def render_download_page():
