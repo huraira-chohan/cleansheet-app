@@ -347,6 +347,7 @@ def render_missing_values_page():
                     st.error(f"Imputation failed: {e}. Check if method is compatible with column type.")
 
 # ---------------------------------- 5.4 COLUMN MANAGEMENT PAGE ----------------------------------
+# ---------------------------------- 5.4 COLUMN MANAGEMENT PAGE ----------------------------------
 def render_column_management_page():
     """Renders page for dropping, renaming, reordering, and type-casting columns."""
     st.header("🏛️ Column Operations")
@@ -359,9 +360,49 @@ def render_column_management_page():
     df = st.session_state.df
     all_cols = df.columns.tolist()
 
-    tab1, tab2, tab3 = st.tabs(["Drop Columns", "Rename Column", "Change Column Type"])
+    # --- TABS FOR DIFFERENT OPERATIONS ---
+    # ADDED "Analyze Column Types" as the first tab for better user flow
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Analyze Column Types", "🗑️ Drop Columns", "✏️ Rename Column", "🔄 Change Column Type"])
 
+    # =========================================================================
+    # --- NEW FEATURE: Analyze Column Types Tab ---
+    # =========================================================================
     with tab1:
+        st.subheader("Analyze Column Data Types")
+        st.markdown("Understand the data types Pandas has inferred for each column. This is crucial for filtering and transformations.")
+
+        numeric_cols = get_numeric_columns(df)
+        categorical_cols = get_categorical_columns(df)
+        datetime_cols = get_datetime_columns(df)
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("#### 🔢 Numeric Columns")
+            if numeric_cols:
+                st.dataframe(pd.DataFrame(numeric_cols, columns=["Column Name"]), use_container_width=True)
+            else:
+                st.info("No numeric columns found.")
+            
+            st.markdown("---")
+
+            st.markdown("#### 📅 Datetime Columns")
+            if datetime_cols:
+                st.dataframe(pd.DataFrame(datetime_cols, columns=["Column Name"]), use_container_width=True)
+            else:
+                st.info("No datetime columns found.")
+
+        with col2:
+            st.markdown("#### 🅰️ Categorical / Object Columns")
+            if categorical_cols:
+                st.dataframe(pd.DataFrame(categorical_cols, columns=["Column Name"]), use_container_width=True)
+            else:
+                st.info("No categorical columns found.")
+
+    # =========================================================================
+    # --- Existing Functionality (now in subsequent tabs) ---
+    # =========================================================================
+    with tab2:
         st.subheader("Drop Unnecessary Columns")
         cols_to_drop = st.multiselect(
             "Select columns to remove:",
@@ -376,7 +417,7 @@ def render_column_management_page():
                 log_action(f"Dropped columns: {', '.join(cols_to_drop)}", f"df.drop(columns={cols_to_drop}, inplace=True)")
                 st.rerun()
 
-    with tab2:
+    with tab3:
         st.subheader("Rename a Column")
         col1, col2 = st.columns(2)
         with col1:
@@ -394,7 +435,7 @@ def render_column_management_page():
                 log_action(f"Renamed column '{col_to_rename}' to '{new_col_name}'.", f"df.rename(columns={{'{col_to_rename}': '{new_col_name}'}}, inplace=True)")
                 st.rerun()
 
-    with tab3:
+    with tab4:
         st.subheader("Change Column Data Type")
         st.markdown("Change the data type of a column. Be cautious, as this can lead to data loss or errors if the conversion is not possible.")
         col1, col2 = st.columns(2)
@@ -408,20 +449,16 @@ def render_column_management_page():
                 original_type = df[col_to_change].dtype
                 current_nulls = df[col_to_change].isnull().sum()
                 
-                # Use a copy for safe conversion
                 temp_series = df[col_to_change].copy()
                 if new_type == 'datetime64[ns]':
                     temp_series = pd.to_datetime(temp_series, errors='coerce')
                 else:
-                    # For bool, be specific about conversion
                     if new_type == 'bool' and pd.api.types.is_object_dtype(temp_series):
-                        # A simple mapping for common true/false strings
                         true_vals = ['true', 't', 'yes', 'y', '1']
                         temp_series = temp_series.str.lower().isin(true_vals)
                     else:
                         temp_series = temp_series.astype(new_type, errors='raise')
 
-                # Check for new NaNs created by coercion
                 new_nulls = temp_series.isnull().sum()
                 nan_diff = new_nulls - current_nulls
                 
