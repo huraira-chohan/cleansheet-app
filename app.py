@@ -1024,7 +1024,7 @@ target_variable = st.sidebar.selectbox(
 df.dropna(subset=[target_variable], inplace=True)
 if df.empty:
     st.error(f"Error: After removing rows with missing targets, the DataFrame is empty. Please clean the '{target_variable}' column.")
-    return
+    st.stop()
 
 problem_type = "Regression" if pd.api.types.is_numeric_dtype(df[target_variable].dtype) and df[target_variable].nunique() > 25 else "Classification"
 st.sidebar.info(f"Problem Type Detected: **{problem_type}**")
