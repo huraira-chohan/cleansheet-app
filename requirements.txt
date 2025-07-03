@@ -6,6 +6,3 @@ seaborn
 plotly
 scikit-learn
 openpyxl
-pyarrow
-ydata-profiling
-typing-extensions
