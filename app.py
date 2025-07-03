@@ -1002,12 +1002,12 @@ def render_column_management_page():
 
 
 # ==================================================================================================
-# NEW ADVANCED PAGE: MACHINE LEARNING MODELER (WITH FULL USER CONTROL)
+# FINAL, USER-DRIVEN ML MODELER PAGE
 # ==================================================================================================
 def render_ml_modeler_page():
-    """Renders the page for training and evaluating machine learning models with full user control."""
-    st.header("🤖 Advanced Machine Learning Modeler")
-    st.markdown("Take full control of the modeling process. Configure data splitting, preprocessing, model selection, and hyperparameter tuning.")
+    """Renders a page where the USER explicitly selects a model and its parameters."""
+    st.header("🤖 Machine Learning Modeler")
+    st.markdown("Select a model from the list to see its specific options and tune its hyperparameters.")
 
     if st.session_state.df is None:
         st.warning("Please upload and clean a file first.")
@@ -1016,188 +1016,133 @@ def render_ml_modeler_page():
     df = st.session_state.df.copy()
 
     # =========================================================================
-    # 1. PROBLEM SETUP (Sidebar) - The user defines the core problem
+    # THE UI WORKFLOW IN THE SIDEBAR
     # =========================================================================
-    st.sidebar.header("1. Problem Setup")
+
+    # --- STEP 1: Define the Goal ---
+    st.sidebar.header("1. Define Your Goal")
     target_variable = st.sidebar.selectbox(
-        "Select Your Target Variable (Y)", df.columns,
+        "Select the Target Column (Y)", df.columns,
         help="This is the column you want the model to predict."
     )
-    # Important: Drop rows where the target is missing, as they are unusable.
     df.dropna(subset=[target_variable], inplace=True)
     if df.empty:
         st.error(f"Error: After removing rows with missing targets, the DataFrame is empty. Please clean the '{target_variable}' column.")
         return
+        
+    problem_type = "Regression" if pd.api.types.is_numeric_dtype(df[target_variable].dtype) and df[target_variable].nunique() > 25 else "Classification"
+    st.sidebar.info(f"Problem Type Detected: **{problem_type}**")
 
-    # Auto-detect problem type, but let the user override it.
-    target_dtype = df[target_variable].dtype
-    if pd.api.types.is_numeric_dtype(target_dtype) and (df[target_variable].nunique() > 25 or 'float' in str(target_dtype)):
-        default_problem = "Regression"
-    else:
-        default_problem = "Classification"
 
-    problem_type = st.sidebar.radio(
-        "Select the Problem Type", ("Classification", "Regression"),
-        index=0 if default_problem == "Classification" else 1
+    # --- STEP 2: The User MUST Select a Model ---
+    st.sidebar.header("2. Choose Your Model")
+    if problem_type == "Classification":
+        model_options = ["Logistic Regression", "Random Forest Classifier", "Support Vector Machine"]
+    else: # Regression
+        model_options = ["Linear Regression", "Random Forest Regressor", "SVR"]
+
+    selected_model_name = st.sidebar.selectbox(
+        "Select an algorithm from the list:",
+        model_options
     )
 
-    all_columns = df.columns.tolist()
-    all_columns.remove(target_variable)
-    features_to_use = st.sidebar.multiselect(
-        "Select Features to Use (X)", all_columns, default=all_columns
-    )
-
-    if not features_to_use:
-        st.warning("Please select at least one feature.")
-        return
-
-    X = df[features_to_use]
-    y = df[target_variable]
-
-    # =========================================================================
-    # 2. CONFIGURATION OPTIONS (Sidebar) - The user configures the experiment
-    # =========================================================================
+    # --- STEP 3: Display ONLY the relevant hyperparameters for the SELECTED model ---
+    st.sidebar.header("3. Tune Model Hyperparameters")
+    params = {}
     
-    # --- Expander for Data Splitting and Preprocessing ---
-    with st.sidebar.expander("⚙️ Configure Preprocessing & Data Split"):
-        st.markdown("**Data Splitting**")
-        test_size = st.slider("Test Set Size", 0.1, 0.5, 0.2, 0.05, help="The proportion of the dataset to include in the test split.")
-        random_state = st.number_input("Random Seed", value=42, help="A fixed seed ensures that the same random split is generated every time, making results reproducible.")
-        
-        stratify = False
+    if selected_model_name == "Logistic Regression":
+        st.sidebar.markdown("Configure parameters for **Logistic Regression**.")
+        params['C'] = st.sidebar.slider("Regularization (C)", 0.01, 10.0, 1.0, 0.01)
+        params['solver'] = st.sidebar.selectbox("Solver", ['liblinear', 'lbfgs', 'saga'])
+
+    elif selected_model_name in ["Random Forest Classifier", "Random Forest Regressor"]:
+        st.sidebar.markdown(f"Configure parameters for **{selected_model_name}**.")
+        params['n_estimators'] = st.sidebar.slider("Number of Trees", 10, 1000, 100, 10)
+        params['max_depth'] = st.sidebar.slider("Max Depth of Trees", 2, 50, 10, 1)
+
+    elif selected_model_name in ["Support Vector Machine", "SVR"]:
+        st.sidebar.markdown(f"Configure parameters for **{selected_model_name}**.")
+        params['C'] = st.sidebar.slider("Regularization (C)", 0.01, 100.0, 1.0, 0.01)
+        params['kernel'] = st.sidebar.selectbox("Kernel", ['rbf', 'linear', 'poly'])
+
+    elif selected_model_name == "Linear Regression":
+        st.sidebar.info("Linear Regression has no major hyperparameters to tune here.")
+
+
+    # --- STEP 4 (Optional): Advanced Settings ---
+    with st.sidebar.expander("Advanced Settings (Data Split & Preprocessing)"):
+        test_size = st.slider("Test Set Size", 0.1, 0.5, 0.2, 0.05)
+        random_state = st.number_input("Random Seed", value=42)
         if problem_type == "Classification":
-            stratify = st.checkbox("Use Stratified Sampling", value=True, help="Ensures class proportions are the same in train/test splits. Highly recommended for classification.")
-
-        st.markdown("---")
-        st.markdown("**Preprocessing for Numeric Features**")
-        numeric_imputer_strategy = st.selectbox("Numeric Imputation", ["median", "mean"], index=0, help="How to fill missing numeric values.")
-        numeric_scaler = st.selectbox("Numeric Scaling", ["StandardScaler", "MinMaxScaler", "None"], index=0, help="Method to scale numeric features. StandardScaler is recommended.")
-
-        st.markdown("---")
-        st.markdown("**Preprocessing for Categorical Features**")
-        categorical_imputer_strategy = st.selectbox("Categorical Imputation", ["most_frequent", "constant"], index=0, help="How to fill missing categorical values.")
-        st.info("Categorical features will be One-Hot Encoded.")
-
-
-    # --- Expander for Model Selection and Hyperparameters ---
-    with st.sidebar.expander("🧠 Select Model & Tune Hyperparameters"):
-        if problem_type == "Classification":
-            model_options = ["Logistic Regression", "Random Forest Classifier", "Support Vector Machine"]
-        else:
-            model_options = ["Linear Regression", "Random Forest Regressor", "SVR"]
-        
-        selected_model_name = st.selectbox("Select a Model", model_options)
-
-        # --- DYNAMIC HYPERPARAMETER UI ---
-        params = {}
-        st.markdown(f"**Hyperparameters for {selected_model_name}**")
-        
-        if selected_model_name == "Logistic Regression":
-            params['C'] = st.slider("Regularization (C)", 0.01, 10.0, 1.0, 0.01, help="Inverse of regularization strength. Smaller values specify stronger regularization.")
-            params['solver'] = st.selectbox("Solver", ['liblinear', 'lbfgs', 'saga'])
-            params['max_iter'] = st.number_input("Max Iterations", 100, 2000, 1000)
-
-        elif selected_model_name in ["Random Forest Classifier", "Random Forest Regressor"]:
-            params['n_estimators'] = st.slider("Number of Trees (n_estimators)", 10, 1000, 100, 10)
-            params['max_depth'] = st.slider("Max Depth of Trees (max_depth)", 2, 50, 10, 1)
-            params['min_samples_split'] = st.slider("Min Samples to Split a Node", 2, 20, 2, 1)
-            if problem_type == "Classification":
-                params['criterion'] = st.selectbox("Criterion", ["gini", "entropy"])
-            else:
-                 params['criterion'] = st.selectbox("Criterion", ["squared_error", "absolute_error"])
-        
-        elif selected_model_name in ["Support Vector Machine", "SVR"]:
-            params['C'] = st.slider("Regularization (C)", 0.01, 100.0, 1.0, 0.01)
-            params['kernel'] = st.selectbox("Kernel", ['rbf', 'linear', 'poly', 'sigmoid'])
-            if params['kernel'] == 'poly':
-                params['degree'] = st.slider("Degree (for poly kernel)", 2, 5, 3, 1)
-        
-        elif selected_model_name == "Linear Regression":
-            st.info("Linear Regression has no significant hyperparameters to tune from this UI.")
-
-    # =========================================================================
-    # 3. EXECUTION AND RESULTS
-    # =========================================================================
-    if st.button("🚀 Train and Evaluate Model", type="primary", use_container_width=True):
-        with st.spinner("Building pipeline and training model..."):
+            st.info("Stratified sampling will be used for classification.")
+    
+    # --- STEP 5: Train the Model ---
+    if st.button("🚀 Train The Selected Model", type="primary", use_container_width=True):
+        st.header(f"Training: {selected_model_name}")
+        with st.spinner("Preparing data and training the model..."):
             
-            # --- Build Preprocessing Pipeline based on user choices ---
+            # Prepare data
+            all_columns = df.columns.tolist()
+            all_columns.remove(target_variable)
+            X = df[all_columns]
+            y = df[target_variable]
+            
+            # Define preprocessing pipelines
             numeric_features = X.select_dtypes(include=np.number).columns.tolist()
             categorical_features = X.select_dtypes(include=['object', 'category', 'bool']).columns.tolist()
 
-            numeric_steps = [('imputer', SimpleImputer(strategy=numeric_imputer_strategy))]
-            if numeric_scaler == "StandardScaler":
-                numeric_steps.append(('scaler', StandardScaler()))
-            elif numeric_scaler == "MinMaxScaler":
-                numeric_steps.append(('scaler', MinMaxScaler()))
-            numeric_transformer = Pipeline(steps=numeric_steps)
-
+            numeric_transformer = Pipeline(steps=[
+                ('imputer', SimpleImputer(strategy='median')),
+                ('scaler', StandardScaler())])
+            
             categorical_transformer = Pipeline(steps=[
-                ('imputer', SimpleImputer(strategy=categorical_imputer_strategy, fill_value='missing')),
-                ('onehot', OneHotEncoder(handle_unknown='ignore'))
-            ])
+                ('imputer', SimpleImputer(strategy='most_frequent')),
+                ('onehot', OneHotEncoder(handle_unknown='ignore'))])
 
             preprocessor = ColumnTransformer(
                 transformers=[
                     ('num', numeric_transformer, numeric_features),
-                    ('cat', categorical_transformer, categorical_features)
-                ])
+                    ('cat', categorical_transformer, categorical_features)])
             
-            # --- Instantiate Model based on user choices ---
-            # **params passes all the collected hyperparameters to the model
+            # Get the correct model class based on the user's selection
             model_class_map = {
-                "Logistic Regression": LogisticRegression,
-                "Random Forest Classifier": RandomForestClassifier,
-                "Support Vector Machine": SVC,
-                "Linear Regression": LinearRegression,
-                "Random Forest Regressor": RandomForestRegressor,
-                "SVR": SVR
+                "Logistic Regression": LogisticRegression, "Random Forest Classifier": RandomForestClassifier, "Support Vector Machine": SVC,
+                "Linear Regression": LinearRegression, "Random Forest Regressor": RandomForestRegressor, "SVR": SVR
             }
             ModelClass = model_class_map[selected_model_name]
             
-            # Add random_state to params if the model accepts it
-            model_init_params = params
-            if 'random_state' in ModelClass().get_params():
-                model_init_params['random_state'] = random_state
-            if selected_model_name == "Support Vector Machine":
-                 model_init_params['probability'] = True
-
-            model = ModelClass(**model_init_params)
-
-            # --- Create and Train the Full Pipeline ---
+            # Add parameters that are not user-tunable but important for reproducibility/functionality
+            if 'random_state' in ModelClass().get_params(): params['random_state'] = random_state
+            if selected_model_name == "Support Vector Machine": params['probability'] = True
+            
+            model = ModelClass(**params)
+            
+            # Create and train the full pipeline
             ml_pipeline = Pipeline(steps=[('preprocessor', preprocessor), ('model', model)])
             
-            stratify_option = y if (problem_type == "Classification" and stratify and all(y.value_counts() >= 2)) else None
-            X_train, X_test, y_train, y_test = train_test_split(
-                X, y, test_size=test_size, random_state=random_state, stratify=stratify_option
-            )
+            stratify_option = y if problem_type == "Classification" else None
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state, stratify=stratify_option)
             
             ml_pipeline.fit(X_train, y_train)
-            y_pred = ml_pipeline.predict(X_test)
-
-        st.success("Model trained successfully!")
+            
+        st.success("Model training complete!")
         
         # --- Display Results ---
-        st.header(f"Results for {selected_model_name}")
-
+        st.header("Model Performance")
+        # (Your existing code for displaying results like confusion matrix, metrics, etc., goes here)
+        # For example:
         if problem_type == "Classification":
-            # Display metrics... (your existing result code is great here)
-            # Make sure to use the fix for the confusion matrix
+            y_pred = ml_pipeline.predict(X_test)
             st.subheader("Confusion Matrix")
             fig, ax = plt.subplots()
             class_labels = ml_pipeline.named_steps['model'].classes_
             cm = confusion_matrix(y_test, y_pred, labels=class_labels)
-            sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax, 
-                        xticklabels=class_labels, yticklabels=class_labels)
-            ax.set_xlabel('Predicted')
-            ax.set_ylabel('Actual')
+            sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax, xticklabels=class_labels, yticklabels=class_labels)
             st.pyplot(fig)
-            
             st.subheader("Classification Report")
             st.text(classification_report(y_test, y_pred, labels=class_labels, zero_division=0))
-
         else: # Regression
-            # Display metrics...
+            y_pred = ml_pipeline.predict(X_test)
             st.subheader("Regression Metrics")
             col1, col2 = st.columns(2)
             mse = mean_squared_error(y_test, y_pred)
@@ -1206,8 +1151,6 @@ def render_ml_modeler_page():
                 st.metric(label="R-squared (R²)", value=f"{r2:.3f}")
             with col2:
                 st.metric(label="Mean Squared Error (MSE)", value=f"{mse:.3f}")
-
-        # ... (Add your other result visualizations like feature importance here) ...
 
 # ---------------------------------- 5.9 DOWNLOAD PAGE -------------------------------------------
 def render_download_page():
