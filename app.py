@@ -664,6 +664,7 @@ def render_outlier_page():
 
 # ---------------------------------- 5.7 TRANSFORMATION PAGE -----------------------------------
 # ---------------------------------- 5.7 TRANSFORMATION PAGE -----------------------------------
+# ---------------------------------- 5.7 TRANSFORMATION PAGE -----------------------------------
 def render_transformation_page():
     """Renders page for text cleaning, categorical normalization, scaling, and date extraction."""
     st.header("🔬 Data Transformation")
@@ -675,61 +676,70 @@ def render_transformation_page():
 
     df = st.session_state.df
 
-    # ADDED "Normalize Categories" tab for the new feature
     tab1, tab2, tab3, tab4 = st.tabs(["📊 Normalize Categories", "🔡 Text Cleaning", "🔢 Numeric Scaling", "📅 Datetime Feature Extraction"])
 
     # =========================================================================
-    # --- NEW FEATURE: Normalize Categories Tab ---
+    # --- NEW AND IMPROVED FEATURE: Normalize Categories Tab ---
     # =========================================================================
     with tab1:
         st.subheader("Normalize Categorical Data")
-        st.markdown("Group different spellings or variations of a category into a single, standard value. For example, mapping 'F', 'female', and 'FEMALE' all to 'Female'.")
+        st.markdown("Consolidate different category spellings into a single, standard value. For example, mapping 'F', 'female', and 'FEMALE' all to 'Female'.")
         
         categorical_cols = get_categorical_columns(df)
         if not categorical_cols:
             st.info("No categorical/text columns found in the dataset.")
         else:
-            selected_col = st.selectbox("Select a categorical column to normalize:", categorical_cols, key="norm_col_select")
+            selected_col = st.selectbox("1. Select a categorical column to normalize:", categorical_cols, key="norm_col_select")
             
             if selected_col:
                 st.markdown("---")
-                st.markdown(f"#### Unique values in `{selected_col}`")
-                
-                unique_values = df[selected_col].dropna().unique()
-                
-                # Create a DataFrame for the data_editor
-                mapping_df = pd.DataFrame({
-                    "Original Value": unique_values,
-                    "New Value": unique_values  # Pre-fill with original values
-                })
-                
-                st.markdown("**Instructions:** Edit the 'New Value' column to group your categories. All rows with the 'Original Value' will be replaced by the corresponding 'New Value'.")
-                
-                # Use st.data_editor for an interactive mapping table
-                edited_mapping_df = st.data_editor(
-                    mapping_df,
-                    disabled=["Original Value"], # Make the original values read-only
-                    use_container_width=True,
-                    key=f"editor_{selected_col}" # Unique key to prevent state issues
-                )
+                st.markdown(f"#### 2. Define Your Mappings")
+                st.markdown("Edit the 'New Value' column to group categories. All original values will be replaced by their corresponding new value.")
 
-                if st.button("Apply Normalization", type="primary"):
-                    # Create a mapping dictionary from the edited DataFrame
-                    # Only include rows where the value has actually changed
-                    mapping_dict = dict(zip(
-                        edited_mapping_df[edited_mapping_df["Original Value"] != edited_mapping_df["New Value"]]["Original Value"],
-                        edited_mapping_df[edited_mapping_df["Original Value"] != edited_mapping_df["New Value"]]["New Value"]
-                    ))
+                with st.form("normalization_form"):
+                    unique_values = df[selected_col].dropna().unique()
+                    
+                    mapping_df = pd.DataFrame({
+                        "Original Value": unique_values,
+                        "New Value": unique_values,
+                    })
+                    
+                    # The powerful data_editor for user input
+                    edited_mapping_df = st.data_editor(
+                        mapping_df,
+                        num_rows="dynamic", # Allow adding new mappings if needed
+                        use_container_width=True,
+                        key=f"editor_{selected_col}"
+                    )
 
-                    if not mapping_dict:
-                        st.warning("No changes were made. Please edit the 'New Value' column.")
-                    else:
-                        # Apply the mapping
-                        # .map() is perfect for this. It will replace values based on the dict.
-                        st.session_state.df[selected_col] = st.session_state.df[selected_col].map(mapping_dict).fillna(st.session_state.df[selected_col])
+                    # --- Live Preview of the Change ---
+                    st.markdown("#### 3. Preview Changes")
+                    # Create the mapping dictionary from the user's edits
+                    mapping_dict = dict(zip(edited_mapping_df["Original Value"], edited_mapping_df["New Value"]))
+                    
+                    # Create a temporary series to show the result
+                    temp_series = df[selected_col].replace(mapping_dict)
+
+                    # Prepare a side-by-side comparison
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write("**Before** (Value Counts):")
+                        st.dataframe(df[selected_col].value_counts(), use_container_width=True)
+                    with col2:
+                        st.write("**After** (Value Counts):")
+                        st.dataframe(temp_series.value_counts(), use_container_width=True)
+                    # --- End of Preview ---
+
+                    submitted = st.form_submit_button("✅ Apply Normalization", type="primary")
+                    if submitted:
+                        # Use the direct and robust .replace() method
+                        st.session_state.df[selected_col] = st.session_state.df[selected_col].replace(mapping_dict)
                         
-                        log_desc = f"Normalized values in '{selected_col}'. Mappings: {mapping_dict}"
-                        log_action(log_desc)
+                        # Filter the dict to only log what actually changed
+                        final_mappings = {k: v for k, v in mapping_dict.items() if k != v}
+                        
+                        log_desc = f"Normalized values in '{selected_col}'. Mappings: {final_mappings}"
+                        log_action(log_desc, f"df['{selected_col}'].replace({final_mappings}, inplace=True)")
                         st.success(f"Successfully normalized the '{selected_col}' column!")
                         st.rerun()
 
@@ -751,7 +761,8 @@ def render_transformation_page():
                 
                 submitted = st.form_submit_button("Apply Text Cleaning")
                 if submitted:
-                    cleaned_series = df[selected_col].astype(str).copy()
+                    # Chained operations for cleaner code
+                    cleaned_series = df[selected_col].astype(str)
                     log_items = []
                     
                     if to_lowercase:
@@ -765,12 +776,16 @@ def render_transformation_page():
                         log_items.append("remove punctuation")
                         
                     st.session_state.df[selected_col] = cleaned_series
-                    log_action(f"Applied text cleaning ({', '.join(log_items)}) to '{selected_col}'.")
-                    st.success(f"Text cleaning applied to '{selected_col}'.")
-                    st.dataframe(pd.DataFrame({
-                        "Original": df[selected_col].head(), 
-                        "Cleaned": st.session_state.df[selected_col].head()
-                    }))
+                    if log_items:
+                        log_action(f"Applied text cleaning ({', '.join(log_items)}) to '{selected_col}'.")
+                        st.success(f"Text cleaning applied to '{selected_col}'.")
+                        st.dataframe(pd.DataFrame({
+                            "Original": df[selected_col].head(), 
+                            "Cleaned": st.session_state.df[selected_col].head()
+                        }))
+                    else:
+                        st.warning("No text cleaning options were selected.")
+
 
     with tab3:
         st.subheader("Scale Numeric Columns")
