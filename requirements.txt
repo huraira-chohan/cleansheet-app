@@ -17,3 +17,6 @@ scikit-learn
 plotly
 matplotlib
 seaborn
+xgboost
+lightgbm
+dateparser
