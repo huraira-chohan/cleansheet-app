@@ -663,8 +663,9 @@ def render_outlier_page():
                 st.rerun()
 
 # ---------------------------------- 5.7 TRANSFORMATION PAGE -----------------------------------
+# ---------------------------------- 5.7 TRANSFORMATION PAGE -----------------------------------
 def render_transformation_page():
-    """Renders page for text cleaning, scaling, and date extraction."""
+    """Renders page for text cleaning, categorical normalization, scaling, and date extraction."""
     st.header("🔬 Data Transformation")
     st.markdown("Apply common transformations to prepare your data for modeling or analysis.")
 
@@ -674,9 +675,68 @@ def render_transformation_page():
 
     df = st.session_state.df
 
-    tab1, tab2, tab3 = st.tabs(["🔡 Text Cleaning", "🔢 Numeric Scaling", "📅 Datetime Feature Extraction"])
+    # ADDED "Normalize Categories" tab for the new feature
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Normalize Categories", "🔡 Text Cleaning", "🔢 Numeric Scaling", "📅 Datetime Feature Extraction"])
 
+    # =========================================================================
+    # --- NEW FEATURE: Normalize Categories Tab ---
+    # =========================================================================
     with tab1:
+        st.subheader("Normalize Categorical Data")
+        st.markdown("Group different spellings or variations of a category into a single, standard value. For example, mapping 'F', 'female', and 'FEMALE' all to 'Female'.")
+        
+        categorical_cols = get_categorical_columns(df)
+        if not categorical_cols:
+            st.info("No categorical/text columns found in the dataset.")
+        else:
+            selected_col = st.selectbox("Select a categorical column to normalize:", categorical_cols, key="norm_col_select")
+            
+            if selected_col:
+                st.markdown("---")
+                st.markdown(f"#### Unique values in `{selected_col}`")
+                
+                unique_values = df[selected_col].dropna().unique()
+                
+                # Create a DataFrame for the data_editor
+                mapping_df = pd.DataFrame({
+                    "Original Value": unique_values,
+                    "New Value": unique_values  # Pre-fill with original values
+                })
+                
+                st.markdown("**Instructions:** Edit the 'New Value' column to group your categories. All rows with the 'Original Value' will be replaced by the corresponding 'New Value'.")
+                
+                # Use st.data_editor for an interactive mapping table
+                edited_mapping_df = st.data_editor(
+                    mapping_df,
+                    disabled=["Original Value"], # Make the original values read-only
+                    use_container_width=True,
+                    key=f"editor_{selected_col}" # Unique key to prevent state issues
+                )
+
+                if st.button("Apply Normalization", type="primary"):
+                    # Create a mapping dictionary from the edited DataFrame
+                    # Only include rows where the value has actually changed
+                    mapping_dict = dict(zip(
+                        edited_mapping_df[edited_mapping_df["Original Value"] != edited_mapping_df["New Value"]]["Original Value"],
+                        edited_mapping_df[edited_mapping_df["Original Value"] != edited_mapping_df["New Value"]]["New Value"]
+                    ))
+
+                    if not mapping_dict:
+                        st.warning("No changes were made. Please edit the 'New Value' column.")
+                    else:
+                        # Apply the mapping
+                        # .map() is perfect for this. It will replace values based on the dict.
+                        st.session_state.df[selected_col] = st.session_state.df[selected_col].map(mapping_dict).fillna(st.session_state.df[selected_col])
+                        
+                        log_desc = f"Normalized values in '{selected_col}'. Mappings: {mapping_dict}"
+                        log_action(log_desc)
+                        st.success(f"Successfully normalized the '{selected_col}' column!")
+                        st.rerun()
+
+    # =========================================================================
+    # --- Existing Functionality (now in subsequent tabs) ---
+    # =========================================================================
+    with tab2:
         st.subheader("Clean Text Columns")
         text_cols = get_categorical_columns(df)
         if not text_cols:
@@ -712,7 +772,7 @@ def render_transformation_page():
                         "Cleaned": st.session_state.df[selected_col].head()
                     }))
 
-    with tab2:
+    with tab3:
         st.subheader("Scale Numeric Columns")
         st.markdown("Scale numeric features to be on a similar scale. This is often a requirement for machine learning algorithms.")
         numeric_cols = get_numeric_columns(df)
@@ -738,7 +798,7 @@ def render_transformation_page():
                     st.success(f"Scaling applied successfully. Preview of scaled columns:")
                     st.dataframe(st.session_state.df[cols_to_scale].head())
 
-    with tab3:
+    with tab4:
         st.subheader("Extract Features from Datetime Columns")
         datetime_cols = get_datetime_columns(df)
         if not datetime_cols:
