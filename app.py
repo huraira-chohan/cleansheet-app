@@ -11,26 +11,29 @@ import plotly.express as px
 import seaborn as sns
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import MinMaxScaler, OneHotEncoder, StandardScaler
+from sklearn.preprocessing import MinMaxScaler, OneHotEncoder, StandardScaler, PolynomialFeatures
+from sklearn.feature_selection import VarianceThreshold
 from sklearn.metrics import (accuracy_score, classification_report, confusion_matrix, 
                             mean_squared_error, r2_score, precision_score, recall_score, 
                             f1_score, roc_auc_score, matthews_corrcoef, mean_absolute_error)
 from sklearn.ensemble import (GradientBoostingClassifier, GradientBoostingRegressor,
                              RandomForestClassifier, RandomForestRegressor)
 from sklearn.linear_model import (LogisticRegression, LinearRegression, Ridge, Lasso)
-from sklearn.naive_bayes import GaussianNB
-from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from sklearn.svm import SVC, SVR
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 import lightgbm as lgb
 import xgboost as xgb
 from scipy.stats import zscore
+import pickle
+from imblearn.over_sampling import SMOTE
+import zipfile
+import os
 
 # Application Configuration
-APP_TITLE = "CSV Data Cleaner"
-APP_ICON = "🧹"
+APP_TITLE = "Data Scientist's CSV Workbench"
+APP_ICON = "🧪"
 
 PAGES = {
     "🏠 Home: Upload & Inspect": "render_home_page",
@@ -43,6 +46,7 @@ PAGES = {
     "🤖 ML Modeler": "render_ml_modeler_page",
     "📜 Action History": "render_history_page",
     "📥 Download & Export": "render_download_page",
+    "⚙️ Smart Clean": "render_smart_clean_page",
 }
 
 # State Management
@@ -54,7 +58,10 @@ def initialize_session_state():
         'file_uploaded': False,
         'active_page': list(PAGES.keys())[0],
         'file_name': None,
-        'history': []
+        'history': [],
+        'undo_stack': [],
+        'trained_model': None,
+        'model_pipeline': None
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -67,12 +74,15 @@ def reset_app_state():
     st.session_state.file_uploader_key += 1
     st.session_state.active_page = list(PAGES.keys())[0]
     st.session_state.history = []
-    st.session_state.file_name = None
-    st.toast("Application reset. Please upload a new file.", icon="🔄")
+    st.session_state.undo_stack = []
+    st.session_state.trained_model = None
+    st.session_state.model_pipeline = None
+    st.toast("Application reset.", icon="🔄")
     st.rerun()
 
 def log_action(description: str, code_snippet: str = None):
     st.session_state.history.append({"description": description, "code": code_snippet})
+    st.session_state.undo_stack.append(st.session_state.df.copy())
     st.toast(f"Action: {description}", icon="✅")
 
 # Utility Functions
@@ -91,17 +101,26 @@ def get_categorical_columns(df: pd.DataFrame) -> List[str]:
 def get_datetime_columns(df: pd.DataFrame) -> List[str]:
     return df.select_dtypes(include=['datetime64', 'datetimetz']).columns.tolist() if df is not None else []
 
+def undo_last_action():
+    if st.session_state.undo_stack:
+        st.session_state.df = st.session_state.undo_stack.pop()
+        st.session_state.history.pop()
+        st.toast("Last action undone.", icon="↩️")
+        st.rerun()
+
 # Page Rendering Functions
 def render_home_page():
     st.title(f"{APP_ICON} {APP_TITLE}")
     st.markdown("""
-    Welcome to the CSV Data Cleaner! This tool helps you clean, preprocess, and prepare CSV data for analysis or machine learning.
+    Welcome to the Data Scientist's CSV Workbench! This comprehensive tool supports data cleaning, preprocessing, visualization, and machine learning.
 
-    **How to use:**
-    1. Upload your CSV file below.
-    2. Navigate through cleaning modules using the sidebar.
-    3. Track changes in the 'Action History' page.
-    4. Download your cleaned data from the 'Download & Export' page.
+    **Features:**
+    - Upload and inspect CSV files
+    - Profile data with advanced visualizations
+    - Clean missing values, duplicates, and outliers
+    - Transform data with feature engineering
+    - Train and evaluate ML models with export options
+    - Automate cleaning with Smart Clean
     """)
 
     st.subheader("Upload CSV File")
@@ -110,15 +129,10 @@ def render_home_page():
             "Choose a CSV file",
             type="csv",
             key=f"uploader_{st.session_state.file_uploader_key}",
-            help="Upload a CSV file to start cleaning."
+            help="Upload a CSV file to start."
         )
-        st.markdown("---")
-        st.subheader("Advanced Options")
-        col1, col2 = st.columns(2)
-        with col1:
-            separator = st.text_input("Column Separator", value=",", help="Common separators: ',' or ';'")
-        with col2:
-            encoding = st.selectbox("File Encoding", ["utf-8", "latin1", "iso-8859-1", "cp1252"], help="Try different encodings if upload fails.")
+        separator = st.text_input("Column Separator", value=",", help="E.g., ',' or ';'")
+        encoding = st.selectbox("File Encoding", ["utf-8", "latin1", "iso-8859-1", "cp1252"])
 
     if uploaded_file is not None:
         try:
@@ -126,12 +140,13 @@ def render_home_page():
             st.session_state.df_original = df.copy()
             st.session_state.df = df.copy()
             st.session_state.file_uploaded = True
-            st.session_state.file_name = uploaded_file.name
-            log_action(f"Uploaded '{uploaded_file.name}'. Shape: {df.shape}", f"pd.read_csv(file, sep='{separator}', encoding='{encoding}')")
-            st.success("File uploaded successfully!")
+            st.session_state.file_name =uploaded_file.name
+            log_action(f"Uploaded '{uploaded_file.name}'. Shape: {df.shape}", 
+                      f"pd.read_csv(file, sep='{separator}', encoding='{encoding}')")
+            st.success("File uploaded!")
             st.rerun()
         except Exception as e:
-            st.error(f"Error: {e}. Check separator, encoding, or file format.")
+            st.error(f"Error: {e}")
             st.session_state.file_uploaded = False
 
     if st.session_state.file_uploaded:
@@ -142,11 +157,11 @@ def render_home_page():
 def render_profiling_page():
     st.header("📊 Data Profiling & Overview")
     if st.session_state.df is None:
-        st.warning("Please upload a file on the Home page.")
+        st.warning("Please upload a file.")
         return
 
     df = st.session_state.df
-    tab1, tab2, tab3, tab4 = st.tabs(["DataFrame Info", "Statistical Summary", "Value Counts", "Column Correlations"])
+    tab1, tab2, tab3, tab4 = st.tabs(["DataFrame Info", "Statistics", "Value Counts", "Correlations"])
 
     with tab1:
         st.subheader("DataFrame Structure")
@@ -157,39 +172,45 @@ def render_profiling_page():
         numeric_cols = get_numeric_columns(df)
         if numeric_cols:
             st.dataframe(df.describe(include=np.number))
+            if st.checkbox("Show distribution plots"):
+                for col in numeric_cols:
+                    fig = px.histogram(df, x=col, title=f"Distribution of {col}")
+                    st.plotly_chart(fig, use_container_width=True)
+                    st.download_button(f"Download {col} Plot", fig.to_image(format="png"), f"{col}_dist.png")
         else:
-            st.info("No numeric columns found.")
+            st.info("No numeric columns.")
         categorical_cols = get_categorical_columns(df)
         if categorical_cols:
             st.dataframe(df.describe(include=['object', 'category']))
         else:
-            st.info("No categorical columns found.")
+            st.info("No categorical columns.")
 
     with tab3:
         st.subheader("Value Counts")
         categorical_cols = get_categorical_columns(df)
-        if not categorical_cols:
-            st.info("No categorical columns found.")
+        if categorical_cols:
+            selected_col = st.selectbox("Select column:", categorical_cols)
+            value_counts_df = df[selected_col].value_counts().reset_index()
+            value_counts_df.columns = [selected_col, 'Count']
+            st.dataframe(value_counts_df)
+            if st.checkbox("Show bar chart?"):
+                fig = px.bar(value_counts_df, x=selected_col, y='Count', title=f"Value Counts for {selected_col}")
+                st.plotly_chart(fig, use_container_width=True)
+                st.download_button("Download Bar Chart", fig.to_image(format="png"), f"{selected_col}_bar.png")
         else:
-            selected_col = st.selectbox("Select column:", categorical_cols, help="View value distribution.")
-            if selected_col:
-                value_counts_df = df[selected_col].value_counts().reset_index()
-                value_counts_df.columns = [selected_col, 'Count']
-                st.dataframe(value_counts_df)
-                if st.checkbox("Show bar chart?"):
-                    fig = px.bar(value_counts_df, x=selected_col, y='Count', title=f"Value Counts for {selected_col}")
-                    st.plotly_chart(fig, use_container_width=True)
+            st.info("No categorical columns.")
 
     with tab4:
         st.subheader("Correlation Analysis")
         numeric_cols = get_numeric_columns(df)
         if len(numeric_cols) < 2:
-            st.info("Need at least two numeric columns for correlation.")
+            st.info("Need at least two numeric columns.")
         else:
             corr_matrix = df[numeric_cols].corr()
             fig, ax = plt.subplots(figsize=(10, 8))
             sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', fmt=".2f", ax=ax)
             st.pyplot(fig)
+            st.download_button("Download Heatmap", fig.get_figure().to_image(format="png"), "correlation_heatmap.png")
 
 def render_missing_values_page():
     st.header("❓ Missing Value Manager")
@@ -204,7 +225,7 @@ def render_missing_values_page():
     missing_df = missing_df[missing_df['Missing Values'] > 0].sort_values(by='Missing Values', ascending=False)
 
     if missing_df.empty:
-        st.success("No missing values found!")
+        st.success("No missing values!")
         return
 
     st.subheader("Missing Value Analysis")
@@ -223,11 +244,11 @@ def render_missing_values_page():
         if drop_choice == "Columns by threshold":
             threshold = st.slider("Threshold (%)", 0, 100, 50)
             if st.button("Drop Columns"):
-                cols_to_drops = missing_df[missing_df['Percentage (%)'] > threshold].index.tolist()
-                if cols_to_drops:
-                    st.session_state.df.drop(columns=cols_to_drops, inplace=True)
-                    log_action(f"Dropped columns with >{threshold}% missing: {', '.join(cols_to_drops)}", 
-                              f"df.drop(columns={cols_to_drops}, inplace=True)")
+                cols_to_drop = missing_df[missing_df['Percentage (%)'] > threshold].index.tolist()
+                if cols_to_drop:
+                    st.session_state.df.drop(columns=cols_to_drop, inplace=True)
+                    log_action(f"Dropped columns with >{threshold}% missing: {', '.join(cols_to_drop)}", 
+                              f"df.drop(columns={cols_to_drop}, inplace=True)")
                     st.rerun()
                 else:
                     st.warning("No columns meet the threshold.")
@@ -303,7 +324,7 @@ def render_column_management_page():
         else:
             selected_col = st.selectbox("Select column:", candidate_cols, key="date_convert")
             parser_engine = st.radio("Parser:", ["Pandas (Fast)", "Dateparser (Robust)"], index=1)
-            dayfirst_param = st.checkbox("Day first (DD/MM/YYYY)", help="For ambiguous dates.")
+            dayfirst_param = st.checkbox("Day first (DD/MM/YYYY)")
             st.markdown("#### Preview")
             try:
                 def parse_with_dateparser(date_string):
@@ -316,7 +337,7 @@ def render_column_management_page():
                     f"Original '{selected_col}'": df[selected_col].head(20),
                     "Parsed Datetime": preview_series.head(20)
                 })
-                st.dataframe(preview_df.dropna(subset=[f"Original '{selected_col}'"]), use_container_width=True)
+                st.dataframe(preview_df.dropna(subset=[f"Original '{selected_col}'"]))
                 failed_parses = preview_series.isna().sum() - df[selected_col].isna().sum()
                 if failed_parses > 0:
                     st.warning(f"{failed_parses} values could not be parsed (set to NaT).")
@@ -324,7 +345,7 @@ def render_column_management_page():
                     st.session_state.df[selected_col] = preview_series
                     log_action(f"Converted '{selected_col}' to datetime using {parser_engine}", 
                               f"pd.to_datetime(df['{selected_col}'], dayfirst={dayfirst_param}, errors='coerce')" if "Pandas" in parser_engine else 
-                              f"df['{selected_col}'].apply(dateparser.parse, settings={{'PREFER_DAY_OF_MONTH': '{'first' if dayfirst_param else 'last'}'}})")
+                              f"df['{selected_col}'].apply(dateparser.parse)")
                     st.rerun()
             except Exception as e:
                 st.error(f"Preview failed: {e}")
@@ -336,7 +357,7 @@ def render_column_management_page():
         with col1:
             st.markdown("#### Numeric Columns")
             st.dataframe(pd.DataFrame(numeric_cols, columns=["Column Name"]))
-            st.markdown("#### Datetime Columns")
+  st.markdown("#### Datetime Columns")
             st.dataframe(pd.DataFrame(datetime_cols, columns=["Column Name"]))
         with col2:
             st.markdown("#### Categorical Columns")
@@ -365,7 +386,7 @@ def render_column_management_page():
                         log_action(log_desc, f"df['{new_cat_col}'] = df['{source_col}'].str.extract(r'([^\d]*)').str.strip(); df['{new_num_col}'] = pd.to_numeric(df['{source_col}'].str.extract(r'(\d+)'), errors='coerce')")
                         st.rerun()
                     else:
-                        st.error("Please provide valid column names.")
+                        st.error("Provide valid column names.")
 
     with tab4:
         st.subheader("Drop Columns")
@@ -500,9 +521,9 @@ def render_transformation_page():
         return
 
     df = st.session_state.df
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "Text-to-Number", "Find & Replace", "Normalize Categories", 
-        "Text Cleaning", "Numeric Scaling", "Datetime Features"
+        "Text Cleaning", "Numeric Scaling", "Datetime Features", "Polynomial Features"
     ])
 
     with tab1:
@@ -638,6 +659,26 @@ def render_transformation_page():
                               f"df['{new_col}'] = df['{selected_col}'].dt.{feature.lower()}")
                     st.rerun()
 
+    with tab7:
+        st.subheader("Polynomial Features")
+        numeric_cols = get_numeric_columns(df)
+        if not numeric_cols:
+            st.info("No numeric columns found.")
+        else:
+            selected_cols = st.multiselect("Select columns:", numeric_cols)
+            degree = st.slider("Polynomial Degree", 2, 4, 2)
+            if st.button("Generate Polynomial Features"):
+                if selected_cols:
+                    poly = PolynomialFeatures(degree=degree, include_bias=False)
+                    poly_features = poly.fit_transform(df[selected_cols])
+                    poly_feature_names = poly.get_feature_names_out(selected_cols)
+                    st.session_state.df[poly_feature_names] = poly_features
+                    log_action(f"Added polynomial features for {', '.join(selected_cols)} (degree={degree})", 
+                              f"poly.fit_transform(df[{selected_cols}])")
+                    st.rerun()
+                else:
+                    st.warning("Select at least one column.")
+
 def render_ml_modeler_page():
     st.header("🤖 ML Modeler")
     if st.session_state.df is None:
@@ -654,15 +695,15 @@ def render_ml_modeler_page():
             return
         problem_type = "Regression" if pd.api.types.is_numeric_dtype(df[target]) and df[target].nunique() > 25 else "Classification"
         st.info(f"Problem: {problem_type}")
-        
+
         model_options = ["--Select Algorithm--"] + (
             ["Logistic Regression", "Random Forest Classifier", "Gradient Boosting", "XGBoost Classifier", 
-             "LightGBM Classifier", "SVC", "KNeighbors Classifier", "DecisionTreeClassifier"] if problem_type == "Classification" else
+             "LightGBM Classifier", "SVC"] if problem_type == "Classification" else
             ["Linear Regression", "Ridge", "Lasso", "Random Forest Regressor", "Gradient Boosting Regressor", 
              "XGBoost Regressor", "LightGBM Regressor", "SVR"]
         )
         selected_model = st.selectbox("Algorithm:", model_options)
-        
+
         params = {}
         if selected_model != "--Select Algorithm--":
             st.header("Hyperparameters")
@@ -671,17 +712,17 @@ def render_ml_modeler_page():
                 params['solver'] = st.selectbox("Solver", ['liblinear', 'lbfgs', 'saga'])
                 params['max_iter'] = st.slider("Max Iterations", 100, 1000, 100, 50)
             elif "Random Forest" in selected_model:
-                params['n_estimators'] = st.slider("Trees", 10, 500, 100, 10)
-                params['max_depth'] = st.slider("Max Depth", 2, 50, 10, 1)
-                params['min_samples_leaf'] = st.slider("Min Samples Leaf", 1, 20, 1, 1)
+                params['n_estimators'] = st.slider("Trees", 10, 200, 100, 10)
+                params['max_depth'] = st.slider("Max Depth", 2, 20, 10, 1)
+                params['min_samples_leaf'] = st.slider("Min Samples Leaf", 1, 10, 1, 1)
             elif "Gradient Boosting" in selected_model:
-                params['n_estimators'] = st.slider("Estimators", 10, 500, 100, 10)
+                params['n_estimators'] = st.slider("Estimators", 10, 200, 100, 10)
                 params['learning_rate'] = st.slider("Learning Rate", 0.01, 0.5, 0.1, 0.01)
-                params['max_depth'] = st.slider("Max Depth", 2, 15, 3, 1)
+                params['max_depth'] = st.slider("Max Depth", 2, 10, 3, 1)
             elif "XGBoost" in selected_model:
-                params['n_estimators'] = st.slider("Estimators", 10, 500, 100, 10)
+                params['n_estimators'] = st.slider("Estimators", 10, 200, 100, 10)
                 params['learning_rate'] = st.slider("Learning Rate", 0.01, 0.5, 0.1, 0.01)
-                params['max_depth'] = st.slider("Max Depth", 2, 15, 3, 1)
+                params['max_depth'] = st.slider("Max Depth", 2, 10, 3, 1)
                 params['subsample'] = st.slider("Subsample", 0.5, 1.0, 1.0, 0.1)
             elif selected_model == "SVC":
                 params['C'] = st.slider("C", 0.01, 10.0, 1.0)
@@ -689,6 +730,8 @@ def render_ml_modeler_page():
                 params['probability'] = True
             test_size = st.slider("Test Size", 0.1, 0.5, 0.2, 0.05)
             random_state = st.number_input("Random Seed", value=42)
+            balance_data = st.checkbox("Balance dataset (SMOTE)", value=False) if problem_type == "Classification" else False
+            feature_selection = st.checkbox("Apply feature selection (Variance Threshold)")
 
     if selected_model == "--Select Algorithm--":
         st.info("Select an algorithm to proceed.")
@@ -708,21 +751,29 @@ def render_ml_modeler_page():
             model_class_map = {
                 "Logistic Regression": LogisticRegression, "Random Forest Classifier": RandomForestClassifier, 
                 "Gradient Boosting": GradientBoostingClassifier, "XGBoost Classifier": xgb.XGBClassifier, 
-                "LightGBM Classifier": lgb.LGBMClassifier, "SVC": SVC, "KNeighbors Classifier": KNeighborsClassifier, 
-                "DecisionTreeClassifier": DecisionTreeClassifier, "Linear Regression": LinearRegression, 
-                "Ridge": Ridge, "Lasso": Lasso, "Random Forest Regressor": RandomForestRegressor, 
-                "Gradient Boosting Regressor": GradientBoostingRegressor, "XGBoost Regressor": xgb.XGBRegressor, 
-                "LightGBM Regressor": lgb.LGBMRegressor, "SVR": SVR
+                "LightGBM Classifier": lgb.LGBMClassifier, "SVC": SVC, 
+                "Linear Regression": LinearRegression, "Ridge": Ridge, "Lasso": Lasso, 
+                "Random Forest Regressor": RandomForestRegressor, "Gradient Boosting Regressor": GradientBoostingRegressor, 
+                "XGBoost Regressor": xgb.XGBRegressor, "LightGBM Regressor": lgb.LGBMRegressor, "SVR": SVR
             }
             model = model_class_map[selected_model](**params)
             if 'random_state' in model.get_params():
                 model.set_params(random_state=random_state)
             if "XGBoost" in selected_model:
                 model.set_params(eval_metric='logloss' if problem_type == "Classification" else 'rmse')
-            pipeline = Pipeline([('preprocessor', preprocessor), ('model', model)])
+            pipeline_steps = [('preprocessor', preprocessor)]
+            if feature_selection:
+                pipeline_steps.append(('feature_selection', VarianceThreshold(threshold=0.0)))
+            pipeline_steps.append(('model', model))
+            pipeline = Pipeline(pipeline_steps)
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state, stratify=(y if problem_type == "Classification" else None))
+            if balance_data and problem_type == "Classification":
+                smote = SMOTE(random_state=random_state)
+                X_train, y_train = smote.fit_resample(X_train, y_train)
             pipeline.fit(X_train, y_train)
             y_pred = pipeline.predict(X_test)
+            st.session_state.model_pipeline = pipeline
+            st.session_state.trained_model = selected_model
 
         st.success("Model trained!")
         tab1, tab2 = st.tabs(["Metrics", "Visualizations"])
@@ -740,6 +791,8 @@ def render_ml_modeler_page():
                 col1, col2, col3 = st.columns(3)
                 for i, (k, v) in enumerate(metrics.items()):
                     (col1 if i < 2 else col2 if i < 4 else col3).metric(k, f"{v:.3f}")
+                cv_scores = cross_val_score(pipeline, X, y, cv=5, scoring='accuracy')
+                st.metric("Cross-Validation Accuracy (Mean)", f"{cv_scores.mean():.3f} ± {cv_scores.std():.3f}")
                 st.subheader("Classification Report")
                 st.dataframe(pd.DataFrame(classification_report(y_test, y_pred, output_dict=True, zero_division=0)).transpose())
             else:
@@ -752,6 +805,8 @@ def render_ml_modeler_page():
                 col1, col2 = st.columns(2)
                 for i, (k, v) in enumerate(metrics.items()):
                     (col1 if i < 2 else col2).metric(k, f"{v:.3f}")
+                cv_scores = cross_val_score(pipeline, X, y, cv=5, scoring='r2')
+                st.metric("Cross-Validation R² (Mean)", f"{cv_scores.mean():.3f} ± {cv_scores.std():.3f}")
 
         with tab2:
             if problem_type == "Classification":
@@ -762,22 +817,26 @@ def render_ml_modeler_page():
                                      labels={'x': 'False Positive Rate', 'y': 'True Positive Rate'})
                     fig_roc.add_shape(type='line', line=dict(dash='dash'), x0=0, x1=1, y0=0, y1=1)
                     st.plotly_chart(fig_roc, use_container_width=True)
+                    st.download_button("Download ROC Curve", fig_roc.to_image(format="png"), "roc_curve.png")
                 fig_cm, ax_cm = plt.subplots()
                 cm = confusion_matrix(y_test, y_pred, labels=pipeline.classes_)
                 sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax_cm, 
                            xticklabels=pipeline.classes_, yticklabels=pipeline.classes_)
                 st.pyplot(fig_cm)
+                st.download_button("Download Confusion Matrix", fig_cm.get_figure().to_image(format="png"), "confusion_matrix.png")
             else:
                 fig_pred = px.scatter(x=y_test, y=y_pred, labels={'x': 'Actual', 'y': 'Predicted'}, 
                                     title="Actual vs. Predicted")
                 fig_pred.add_shape(type='line', line=dict(dash='dash'), x0=y_test.min(), y0=y_test.min(), 
                                   x1=y_test.max(), y1=y_test.max())
                 st.plotly_chart(fig_pred, use_container_width=True)
+                st.download_button("Download Scatter Plot", fig_pred.to_image(format="png"), "actual_vs_predicted.png")
                 residuals = y_test - y_pred
                 fig_res = px.scatter(x=y_pred, y=residuals, labels={'x': 'Predicted', 'y': 'Residuals'}, 
                                    title="Residuals vs. Predicted")
                 fig_res.add_hline(y=0, line_dash="dash")
                 st.plotly_chart(fig_res, use_container_width=True)
+                st.download_button("Download Residuals Plot", fig_res.to_image(format="png"), "residuals_plot.png")
             model = pipeline.named_steps['model']
             if hasattr(model, 'feature_importances_') or hasattr(model, 'coef_'):
                 importances = model.feature_importances_ if hasattr(model, 'feature_importances_') else model.coef_[0]
@@ -785,11 +844,22 @@ def render_ml_modeler_page():
                 feature_df = pd.DataFrame({'Feature': feature_names, 'Importance': np.abs(importances)}).sort_values(by='Importance', ascending=False).head(20)
                 fig_imp = px.bar(feature_df, x='Importance', y='Feature', orientation='h', title="Top 20 Features")
                 st.plotly_chart(fig_imp, use_container_width=True)
+                st.download_button("Download Feature Importance", fig_imp.to_image(format="png"), "feature_importance.png")
+
+        st.subheader("Model Export")
+        if st.session_state.model_pipeline:
+            model_buffer = io.BytesIO()
+            pickle.dump(st.session_state.model_pipeline, model_buffer)
+            model_buffer.seek(0)
+            st.download_button("Download Trained Model", model_buffer, f"{st.session_state.trained_model}_model.pkl", "application/octet-stream")
+            pred_df = pd.DataFrame({'Actual': y_test, 'Predicted': y_pred})
+            pred_csv = pred_df.to_csv(index=False).encode('utf-8')
+            st.download_button("Download Predictions", pred_csv, "predictions.csv", "text/csv")
 
 def render_history_page():
     st.header("📜 Action History")
     if not st.session_state.history:
-        st.info("No actions recorded yet.")
+        st.info("No actions recorded.")
     else:
         for idx, action in enumerate(st.session_state.history):
             st.markdown(f"**Action {idx + 1}:** {action['description']}")
@@ -810,6 +880,69 @@ def render_download_page():
     filename = f"cleaned_{st.session_state.file_name or 'data.csv'}"
     st.download_button("Download CSV", csv, filename, "text/csv", type="primary")
 
+    st.subheader("Export Python Script")
+    script = """
+import pandas as pd
+
+# Load data
+df = pd.read_csv('input.csv')
+
+# Applied transformations
+"""
+    for action in st.session_state.history:
+        if action['code']:
+            script += f"{action['code']}\n"
+    script += "\n# Save cleaned data\ndf.to_csv('cleaned_output.csv', index=False)"
+    st.download_button("Download Python Script", script.encode('utf-8'), "cleaning_script.py", "text/x-python")
+
+def render_smart_clean_page():
+    st.header("⚙️ Smart Clean")
+    if st.session_state.df is None:
+        st.warning("Please upload a file.")
+        return
+
+    df = st.session_state.df.copy()
+    st.subheader("Automated Cleaning Suggestions")
+    missing_data = df.isnull().sum()
+    missing_cols = missing_data[missing_data > 0].index.tolist()
+    duplicates = df.duplicated().sum()
+    numeric_cols = get_numeric_columns(df)
+    outliers_detected = {col: len(df[col][np.abs(zscore(df[col].dropna())) > 3]) for col in numeric_cols}
+
+    st.markdown("#### Data Quality Report")
+    if missing_cols:
+        st.warning(f"Missing values in {', '.join(missing_cols)}")
+    if duplicates:
+        st.warning(f"{duplicates} duplicate rows detected")
+    for col, count in outliers_detected.items():
+        if count > 0:
+            st.warning(f"{count} potential outliers in {col}")
+
+    if st.button("Apply Smart Cleaning", type="primary"):
+        with st.spinner("Applying automated cleaning..."):
+            # Handle missing values
+            for col in missing_cols:
+                if pd.api.types.is_numeric_dtype(df[col]):
+                    df[col].fillna(df[col].median(), inplace=True)
+                    log_action(f"Imputed '{col}' with median", f"df['{col}'].fillna(df['{col}'].median(), inplace=True)")
+                else:
+                    df[col].fillna(df[col].mode()[0], inplace=True)
+                    log_action(f"Imputed '{col}' with mode", f"df['{col}'].fillna(df['{col}'].mode()[0], inplace=True)")
+            # Remove duplicates
+            if duplicates:
+                df.drop_duplicates(keep='first', inplace=True)
+                log_action(f"Removed {duplicates} duplicates", "df.drop_duplicates(keep='first', inplace=True)")
+            # Remove outliers
+            for col in numeric_cols:
+                if outliers_detected[col] > 0:
+                    z_scores = zscore(df[col].dropna())
+                    df = df.loc[df[col].dropna()[np.abs(z_scores) <= 3].index]
+                    log_action(f"Removed outliers from '{col}' (Z-Score)", 
+                              f"df = df.loc[df['{col}'].dropna()[np.abs(zscore(df['{col}'].dropna())) <= 3].index]")
+            st.session_state.df = df
+            st.success("Smart cleaning applied!")
+            st.rerun()
+
 def main():
     st.set_page_config(page_title=APP_TITLE, page_icon=APP_ICON, layout="wide", initial_sidebar_state="expanded")
     initialize_session_state()
@@ -820,9 +953,12 @@ def main():
             st.session_state.active_page = available_pages[0]
         st.session_state.active_page = st.radio("Go to:", available_pages, index=available_pages.index(st.session_state.active_page))
         if st.session_state.file_uploaded:
+            if st.button("Undo Last Action"):
+                undo_last_action()
             if st.button("Reset Changes"):
                 st.session_state.df = st.session_state.df_original.copy()
                 st.session_state.history = []
+                st.session_state.undo_stack = []
                 log_action("Reset to original file")
                 st.rerun()
             if st.button("Upload New File"):
