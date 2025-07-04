@@ -1,3 +1,5 @@
+# --- Core and Data Handling Imports ---
+# --- Core and Third-Party Libraries ---
 import base64
 import io
 import streamlit as st
@@ -6,35 +8,47 @@ import pandas as pd
 import dateparser
 from typing import Callable, Dict, List
 from word2number import w2n
+
+# --- Visualization Libraries ---
 import matplotlib.pyplot as plt
 import plotly.express as px
 import seaborn as sns
+
+# --- Scikit-Learn Preprocessing and Pipeline ---
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
-from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import MinMaxScaler, OneHotEncoder, StandardScaler, PolynomialFeatures
-from sklearn.feature_selection import VarianceThreshold
-from sklearn.metrics import (accuracy_score, classification_report, confusion_matrix, 
-                            mean_squared_error, r2_score, precision_score, recall_score, 
-                            f1_score, roc_auc_score, matthews_corrcoef, mean_absolute_error)
+from sklearn.preprocessing import MinMaxScaler, OneHotEncoder, StandardScaler
+
+# --- Scikit-Learn Metrics ---
+from sklearn.metrics import (accuracy_score, classification_report,
+                             confusion_matrix, mean_squared_error, r2_score)
+
+# --- Scikit-Learn Models ---
 from sklearn.ensemble import (GradientBoostingClassifier, GradientBoostingRegressor,
-                             RandomForestClassifier, RandomForestRegressor)
-from sklearn.linear_model import (LogisticRegression, LinearRegression, Ridge, Lasso)
+                              RandomForestClassifier, RandomForestRegressor)
+from sklearn.linear_model import (ElasticNet, Lasso, LinearRegression,
+                                  LogisticRegression, Ridge)
+from sklearn.naive_bayes import GaussianNB
+from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.svm import SVC, SVR
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+
+# --- Other Machine Learning Libraries ---
 import lightgbm as lgb
 import xgboost as xgb
-from scipy.stats import zscore
-import pickle
-from imblearn.over_sampling import SMOTE
-import zipfile
-import os
+# Metrics
+from sklearn.metrics import classification_report, confusion_matrix, mean_squared_error, r2_score
+# ==================================================================================================
+# 2. APPLICATION CONFIGURATION AND CONSTANTS
+# ==================================================================================================
 
-# Application Configuration
-APP_TITLE = "Data Scientist's CSV Workbench"
-APP_ICON = "🧪"
+APP_TITLE = "CSV Data Cleaner"
+APP_ICON = "-🧹"
 
+# Define the structure of our application pages
 PAGES = {
     "🏠 Home: Upload & Inspect": "render_home_page",
     "📊 Data Profiling & Overview": "render_profiling_page",
@@ -46,93 +60,130 @@ PAGES = {
     "🤖 ML Modeler": "render_ml_modeler_page",
     "📜 Action History": "render_history_page",
     "📥 Download & Export": "render_download_page",
-    "⚙️ Smart Clean": "render_smart_clean_page",
 }
 
-# State Management
+# ==================================================================================================
+# 3. ROBUST STATE MANAGEMENT
+# ==================================================================================================
+
 def initialize_session_state():
-    defaults = {
-        'df': None,
-        'df_original': None,
-        'file_uploader_key': 0,
-        'file_uploaded': False,
-        'active_page': list(PAGES.keys())[0],
-        'file_name': None,
-        'history': [],
-        'undo_stack': [],
-        'trained_model': None,
-        'model_pipeline': None
-    }
-    for key, value in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = value
+    """
+    Initializes all necessary keys in st.session_state on first run.
+    This centralized function prevents state-related errors.
+    """
+    # --- Core Data Storage ---
+    if 'df' not in st.session_state:
+        st.session_state.df = None
+    if 'df_original' not in st.session_state:
+        st.session_state.df_original = None
+
+    # --- Control and UI Flags ---
+    if 'file_uploader_key' not in st.session_state:
+        st.session_state.file_uploader_key = 0
+    if 'file_uploaded' not in st.session_state:
+        st.session_state.file_uploaded = False
+    if 'active_page' not in st.session_state:
+        st.session_state.active_page = list(PAGES.keys())[0]
+    if 'file_name' not in st.session_state:
+        st.session_state.file_name = None
+
+    # --- Action History Log ---
+    if 'history' not in st.session_state:
+        st.session_state.history = []
 
 def reset_app_state():
+    """
+    Resets the application to its initial state, ready for a new file.
+    This function is carefully designed to reset all relevant state variables.
+    """
     st.session_state.df = None
     st.session_state.df_original = None
     st.session_state.file_uploaded = False
     st.session_state.file_uploader_key += 1
     st.session_state.active_page = list(PAGES.keys())[0]
     st.session_state.history = []
-    st.session_state.undo_stack = []
-    st.session_state.trained_model = None
-    st.session_state.model_pipeline = None
-    st.toast("Application reset.", icon="🔄")
+    st.session_state.file_name = None
+    st.toast("Application has been reset. Please upload a new file.", icon="🔄")
     st.rerun()
 
 def log_action(description: str, code_snippet: str = None):
-    st.session_state.history.append({"description": description, "code": code_snippet})
-    st.session_state.undo_stack.append(st.session_state.df.copy())
-    st.toast(f"Action: {description}", icon="✅")
+    """
+    Logs a user action to the history.
 
-# Utility Functions
-@st.cache_data
+    Args:
+        description (str): A user-friendly description of the action.
+        code_snippet (str, optional): The equivalent pandas code. Defaults to None.
+    """
+    st.session_state.history.append({"description": description, "code": code_snippet})
+    st.toast(f"Action logged: {description}", icon="✅")
+
+# ==================================================================================================
+# 4. HELPER & UTILITY FUNCTIONS
+# ==================================================================================================
+
 def get_dataframe_info(df: pd.DataFrame) -> str:
+    """Captures df.info() output into a string."""
     buffer = io.StringIO()
     df.info(buf=buffer, verbose=True)
     return buffer.getvalue()
 
 def get_numeric_columns(df: pd.DataFrame) -> List[str]:
-    return df.select_dtypes(include=np.number).columns.tolist() if df is not None else []
+    """Returns a list of numeric column names."""
+    if df is None:
+        return []
+    return df.select_dtypes(include=np.number).columns.tolist()
 
 def get_categorical_columns(df: pd.DataFrame) -> List[str]:
-    return df.select_dtypes(include=['object', 'category', 'bool']).columns.tolist() if df is not None else []
+    """Returns a list of categorical/object column names."""
+    if df is None:
+        return []
+    return df.select_dtypes(include=['object', 'category', 'bool']).columns.tolist()
 
 def get_datetime_columns(df: pd.DataFrame) -> List[str]:
-    return df.select_dtypes(include=['datetime64', 'datetimetz']).columns.tolist() if df is not None else []
+    """Returns a list of datetime column names."""
+    if df is None:
+        return []
+    return df.select_dtypes(include=['datetime64', 'datetimetz']).columns.tolist()
 
-def undo_last_action():
-    if st.session_state.undo_stack:
-        st.session_state.df = st.session_state.undo_stack.pop()
-        st.session_state.history.pop()
-        st.toast("Last action undone.", icon="↩️")
-        st.rerun()
+# ==================================================================================================
+# 5. UI PAGE RENDERING FUNCTIONS
+#
+# Each function is responsible for a single page in the application. This modular approach
+# keeps the code clean and manageable.
+# ==================================================================================================
 
-# Page Rendering Functions
+# ---------------------------------- 5.1 HOME / UPLOAD PAGE --------------------------------------
 def render_home_page():
+    """Renders the initial landing page for file upload and instructions."""
     st.title(f"{APP_ICON} {APP_TITLE}")
     st.markdown("""
-    Welcome to the Data Scientist's CSV Workbench! This comprehensive tool supports data cleaning, preprocessing, visualization, and machine learning.
+    Welcome to your one-stop solution for data cleaning! This powerful and robust tool,
+    built with Streamlit, allows you to systematically clean, preprocess, and prepare your
+    CSV data for analysis or machine learning.
 
-    **Features:**
-    - Upload and inspect CSV files
-    - Profile data with advanced visualizations
-    - Clean missing values, duplicates, and outliers
-    - Transform data with feature engineering
-    - Train and evaluate ML models with export options
-    - Automate cleaning with Smart Clean
+    **How to use this application:**
+    1.  **Upload Your Data**: Use the file uploader below to load your CSV file. Try the advanced options if you encounter encoding errors.
+    2.  **Navigate & Clean**: Use the sidebar on the left to navigate through different cleaning modules.
+    3.  **Track Your Progress**: The 'Action History' page keeps a log of all transformations you apply.
+    4.  **Download**: Once satisfied, proceed to the 'Download & Export' page to get your cleaned data.
     """)
 
-    st.subheader("Upload CSV File")
+    st.subheader("1. Upload Your CSV File")
+
     with st.expander("Upload Options", expanded=True):
         uploaded_file = st.file_uploader(
             "Choose a CSV file",
             type="csv",
-            key=f"uploader_{st.session_state.file_uploader_key}",
-            help="Upload a CSV file to start."
+            key=f"file_uploader_{st.session_state.file_uploader_key}",
+            help="Upload a CSV file to begin the cleaning process."
         )
-        separator = st.text_input("Column Separator", value=",", help="E.g., ',' or ';'")
-        encoding = st.selectbox("File Encoding", ["utf-8", "latin1", "iso-8859-1", "cp1252"])
+        st.markdown("---")
+        st.subheader("Advanced Options")
+        col1, col2 = st.columns(2)
+        with col1:
+            separator = st.text_input("Column Separator (e.g., ',' or ';')", value=",")
+        with col2:
+            encoding = st.selectbox("File Encoding", ["utf-8", "latin1", "iso-8859-1", "cp1252"])
 
     if uploaded_file is not None:
         try:
@@ -140,834 +191,1117 @@ def render_home_page():
             st.session_state.df_original = df.copy()
             st.session_state.df = df.copy()
             st.session_state.file_uploaded = True
-            st.session_state.file_name =uploaded_file.name
-            log_action(f"Uploaded '{uploaded_file.name}'. Shape: {df.shape}", 
-                      f"pd.read_csv(file, sep='{separator}', encoding='{encoding}')")
-            st.success("File uploaded!")
-            st.rerun()
+            st.session_state.file_name = uploaded_file.name
+            log_action(f"File '{uploaded_file.name}' loaded successfully. Shape: {df.shape}")
+            st.success("File uploaded and processed successfully!")
+            st.rerun() # Rerun to move to the next logical view
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(f"Error reading file: {e}")
+            st.warning("Please check the separator, encoding, or file integrity.")
             st.session_state.file_uploaded = False
 
     if st.session_state.file_uploaded:
-        st.subheader("Quick Inspection")
-        st.info(f"File: **{st.session_state.file_name}** | Shape: **{st.session_state.df.shape}**")
+        st.subheader("2. Quick Inspection")
+        st.info(f"File **'{st.session_state.file_name}'** is loaded. Shape: **{st.session_state.df.shape}**. Use the sidebar to start cleaning.")
         st.dataframe(st.session_state.df.head())
 
+# ---------------------------------- 5.2 DATA PROFILING PAGE -------------------------------------
 def render_profiling_page():
+    """Renders the data profiling page with detailed statistics and info."""
     st.header("📊 Data Profiling & Overview")
+    st.markdown("Get a deep understanding of your dataset's structure, types, and statistics.")
+
     if st.session_state.df is None:
-        st.warning("Please upload a file.")
+        st.warning("Please upload a file first on the Home page.")
         return
 
     df = st.session_state.df
-    tab1, tab2, tab3, tab4 = st.tabs(["DataFrame Info", "Statistics", "Value Counts", "Correlations"])
+
+    # Create tabs for different profiling views
+    tab1, tab2, tab3, tab4 = st.tabs(["DataFrame Info", "Statistical Summary", "Value Counts", "Column Correlations"])
 
     with tab1:
-        st.subheader("DataFrame Structure")
-        st.text(get_dataframe_info(df))
+        st.subheader("DataFrame Structure and Memory")
+        info_str = get_dataframe_info(df)
+        st.text(info_str)
 
     with tab2:
         st.subheader("Descriptive Statistics")
-        numeric_cols = get_numeric_columns(df)
-        if numeric_cols:
+        st.markdown("Summary statistics for all numeric columns in your dataset.")
+        # Defensive check for numeric columns
+        if not get_numeric_columns(df):
+            st.info("No numeric columns found in the dataset to describe.")
+        else:
             st.dataframe(df.describe(include=np.number))
-            if st.checkbox("Show distribution plots"):
-                for col in numeric_cols:
-                    fig = px.histogram(df, x=col, title=f"Distribution of {col}")
-                    st.plotly_chart(fig, use_container_width=True)
-                    st.download_button(f"Download {col} Plot", fig.to_image(format="png"), f"{col}_dist.png")
+
+        st.markdown("Summary statistics for all non-numeric columns.")
+        # Defensive check for categorical columns
+        if not get_categorical_columns(df):
+            st.info("No categorical/object columns found to describe.")
         else:
-            st.info("No numeric columns.")
-        categorical_cols = get_categorical_columns(df)
-        if categorical_cols:
             st.dataframe(df.describe(include=['object', 'category']))
-        else:
-            st.info("No categorical columns.")
 
     with tab3:
-        st.subheader("Value Counts")
+        st.subheader("Categorical Column Value Counts")
         categorical_cols = get_categorical_columns(df)
-        if categorical_cols:
-            selected_col = st.selectbox("Select column:", categorical_cols)
-            value_counts_df = df[selected_col].value_counts().reset_index()
-            value_counts_df.columns = [selected_col, 'Count']
-            st.dataframe(value_counts_df)
-            if st.checkbox("Show bar chart?"):
-                fig = px.bar(value_counts_df, x=selected_col, y='Count', title=f"Value Counts for {selected_col}")
-                st.plotly_chart(fig, use_container_width=True)
-                st.download_button("Download Bar Chart", fig.to_image(format="png"), f"{selected_col}_bar.png")
+        if not categorical_cols:
+            st.info("No categorical columns found to analyze value counts.")
         else:
-            st.info("No categorical columns.")
+            selected_col = st.selectbox(
+                "Select a column to view its value distribution:",
+                options=categorical_cols,
+                help="Choose a column to see the frequency of each unique value."
+            )
+            if selected_col:
+                value_counts_df = df[selected_col].value_counts().reset_index()
+                value_counts_df.columns = [selected_col, 'Count']
+                st.dataframe(value_counts_df)
+                if st.checkbox(f"Show bar chart for '{selected_col}'?"):
+                    fig = px.bar(value_counts_df, x=selected_col, y='Count', title=f"Value Counts for {selected_col}")
+                    st.plotly_chart(fig, use_container_width=True)
 
     with tab4:
-        st.subheader("Correlation Analysis")
+        st.subheader("Numeric Column Correlation Analysis")
         numeric_cols = get_numeric_columns(df)
         if len(numeric_cols) < 2:
-            st.info("Need at least two numeric columns.")
+            st.info("You need at least two numeric columns to compute a correlation matrix.")
         else:
+            st.markdown("A heatmap showing the Pearson correlation between numeric variables. Values close to 1 or -1 indicate a strong linear relationship.")
             corr_matrix = df[numeric_cols].corr()
-            fig, ax = plt.subplots(figsize=(10, 8))
+            fig, ax = plt.subplots(figsize=(12, 8))
             sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', fmt=".2f", ax=ax)
             st.pyplot(fig)
-            st.download_button("Download Heatmap", fig.get_figure().to_image(format="png"), "correlation_heatmap.png")
 
+
+# ---------------------------------- 5.3 MISSING VALUES PAGE -------------------------------------
 def render_missing_values_page():
+    """Renders the page for handling missing values (NaNs)."""
     st.header("❓ Missing Value Manager")
+    st.markdown("Analyze, visualize, and handle missing data in your dataset.")
+
     if st.session_state.df is None:
-        st.warning("Please upload a file.")
+        st.warning("Please upload a file first.")
         return
 
     df = st.session_state.df
     missing_data = df.isnull().sum()
-    missing_data_percent = (missing_data / len(df)) * 100
+    missing_data_percent = (df.isnull().sum() / len(df)) * 100
     missing_df = pd.DataFrame({'Missing Values': missing_data, 'Percentage (%)': missing_data_percent})
     missing_df = missing_df[missing_df['Missing Values'] > 0].sort_values(by='Missing Values', ascending=False)
 
     if missing_df.empty:
-        st.success("No missing values!")
+        st.success("🎉 Excellent! No missing values found in your dataset.")
         return
 
-    st.subheader("Missing Value Analysis")
+    st.subheader("1. Missing Value Analysis")
     col1, col2 = st.columns([1, 2])
     with col1:
         st.dataframe(missing_df)
     with col2:
-        st.markdown("#### Missing Values Heatmap")
+        st.markdown("#### Heatmap of Missing Values")
         fig, ax = plt.subplots()
         sns.heatmap(df.isnull(), cbar=False, cmap='viridis', yticklabels=False, ax=ax)
         st.pyplot(fig)
 
-    st.subheader("Handle Missing Values")
-    with st.expander("Drop Missing Values"):
-        drop_choice = st.radio("Drop method:", ["Rows with any NaNs", "Columns with any NaNs", "Columns by threshold"])
-        if drop_choice == "Columns by threshold":
-            threshold = st.slider("Threshold (%)", 0, 100, 50)
-            if st.button("Drop Columns"):
+    st.markdown("---")
+    st.subheader("2. Handle Missing Values")
+
+    with st.expander("🚮 Option A: Drop Missing Values"):
+        st.markdown("Permanently remove rows or columns containing missing values.")
+        drop_choice = st.radio("Select drop method:", ["Drop rows with any NaNs", "Drop columns with any NaNs", "Drop columns based on a threshold"])
+        
+        if drop_choice == "Drop columns based on a threshold":
+            threshold = st.slider("Percentage of missing values threshold", 0, 100, 50)
+            if st.button("Drop Columns by Threshold"):
                 cols_to_drop = missing_df[missing_df['Percentage (%)'] > threshold].index.tolist()
-                if cols_to_drop:
-                    st.session_state.df.drop(columns=cols_to_drop, inplace=True)
-                    log_action(f"Dropped columns with >{threshold}% missing: {', '.join(cols_to_drop)}", 
-                              f"df.drop(columns={cols_to_drop}, inplace=True)")
-                    st.rerun()
+                if not cols_to_drop:
+                    st.warning("No columns met the threshold to be dropped.")
                 else:
-                    st.warning("No columns meet the threshold.")
-        elif st.button("Apply Drop"):
-            if drop_choice == "Rows with any NaNs":
+                    st.session_state.df.drop(columns=cols_to_drop, inplace=True)
+                    log_action(f"Dropped columns with >{threshold}% missing values: {', '.join(cols_to_drop)}", f"df.drop(columns={cols_to_drop}, inplace=True)")
+                    st.rerun()
+
+        elif st.button("Apply Drop Operation"):
+            if drop_choice == "Drop rows with any NaNs":
                 st.session_state.df.dropna(axis=0, inplace=True)
-                log_action("Dropped rows with missing values", "df.dropna(axis=0, inplace=True)")
-            else:
+                log_action("Dropped rows with any missing values.", "df.dropna(axis=0, inplace=True)")
+            else: # Drop columns with any NaNs
                 st.session_state.df.dropna(axis=1, inplace=True)
-                log_action("Dropped columns with missing values", "df.dropna(axis=1, inplace=True)")
+                log_action("Dropped columns with any missing values.", "df.dropna(axis=1, inplace=True)")
             st.rerun()
 
-    with st.expander("Impute Missing Values"):
+    with st.expander("✍️ Option B: Impute (Fill) Missing Values"):
+        st.markdown("Replace missing values with a calculated or constant value.")
         impute_cols = missing_df.index.tolist()
-        if impute_cols:
-            selected_col = st.selectbox("Select column:", impute_cols)
-            col_type = df[selected_col].dtype
-            impute_methods = ['Mode', 'Custom Value'] if not pd.api.types.is_numeric_dtype(col_type) else \
-                             ['Mean', 'Median', 'Mode', 'Interpolate', 'Custom Value']
-            imputation_method = st.selectbox("Imputation method:", impute_methods)
-            custom_value = st.text_input("Custom value:", "") if imputation_method == 'Custom Value' else None
+        selected_col_impute = st.selectbox("Select column to impute:", impute_cols)
+        
+        if selected_col_impute:
+            col_type = df[selected_col_impute].dtype
+            impute_methods = ['Mode', 'Custom Value']
+            if pd.api.types.is_numeric_dtype(col_type):
+                impute_methods = ['Mean', 'Median', 'Mode', 'Interpolate', 'Custom Value']
+            
+            imputation_method = st.selectbox("Select imputation method:", impute_methods)
+            custom_value = None
+            if imputation_method == 'Custom Value':
+                custom_value = st.text_input("Enter custom value:")
+
             if st.button("Apply Imputation"):
                 try:
+                    fill_value = None
+                    code_snippet = ""
                     if imputation_method == 'Mean':
-                        fill_value = df[selected_col].mean()
-                        st.session_state.df[selected_col].fillna(fill_value, inplace=True)
-                        log_action(f"Imputed '{selected_col}' with mean: {fill_value}", 
-                                  f"df['{selected_col}'].fillna(df['{selected_col}'].mean(), inplace=True)")
+                        fill_value = df[selected_col_impute].mean()
+                        code_snippet = f"df['{selected_col_impute}'].fillna(df['{selected_col_impute}'].mean(), inplace=True)"
                     elif imputation_method == 'Median':
-                        fill_value = df[selected_col].median()
-                        st.session_state.df[selected_col].fillna(fill_value, inplace=True)
-                        log_action(f"Imputed '{selected_col}' with median: {fill_value}", 
-                                  f"df['{selected_col}'].fillna(df['{selected_col}'].median(), inplace=True)")
+                        fill_value = df[selected_col_impute].median()
+                        code_snippet = f"df['{selected_col_impute}'].fillna(df['{selected_col_impute}'].median(), inplace=True)"
                     elif imputation_method == 'Mode':
-                        fill_value = df[selected_col].mode()[0]
-                        st.session_state.df[selected_col].fillna(fill_value, inplace=True)
-                        log_action(f"Imputed '{selected_col}' with mode: {fill_value}", 
-                                  f"df['{selected_col}'].fillna(df['{selected_col}'].mode()[0], inplace=True)")
-                    elif imputation_method == 'Interpolate':
-                        st.session_state.df[selected_col].interpolate(method='linear', inplace=True)
-                        log_action(f"Interpolated '{selected_col}'", 
-                                  f"df['{selected_col}'].interpolate(method='linear', inplace=True)")
+                        fill_value = df[selected_col_impute].mode()[0]
+                        code_snippet = f"df['{selected_col_impute}'].fillna(df['{selected_col_impute}'].mode()[0], inplace=True)"
                     elif imputation_method == 'Custom Value':
-                        if custom_value:
-                            st.session_state.df[selected_col].fillna(custom_value, inplace=True)
-                            log_action(f"Imputed '{selected_col}' with custom value: {custom_value}", 
-                                      f"df['{selected_col}'].fillna('{custom_value}', inplace=True)")
-                        else:
-                            st.error("Please provide a custom value.")
-                            return
-                    st.rerun()
+                        fill_value = custom_value
+                        code_snippet = f"df['{selected_col_impute}'].fillna('{custom_value}', inplace=True)"
+                    elif imputation_method == 'Interpolate':
+                        st.session_state.df[selected_col_impute].interpolate(method='linear', inplace=True)
+                        log_action(f"Interpolated missing values in '{selected_col_impute}'.", f"df['{selected_col_impute}'].interpolate(method='linear', inplace=True)")
+                        st.rerun()
+                        
+                    if fill_value is not None:
+                        st.session_state.df[selected_col_impute].fillna(fill_value, inplace=True)
+                        log_action(f"Imputed '{selected_col_impute}' with {imputation_method}: '{fill_value}'.", code_snippet)
+                        st.rerun()
                 except Exception as e:
-                    st.error(f"Imputation failed: {e}")
+                    st.error(f"Imputation failed: {e}. Check if method is compatible with column type.")
 
+
+# ---------------------------------- 5.4 COLUMN MANAGEMENT PAGE ----------------------------------
 def render_column_management_page():
+    """Renders page for date conversion, splitting, dropping, renaming, and type-casting columns."""
     st.header("🏛️ Column Operations")
+    st.markdown("Perform column-level operations like converting dates, splitting, dropping, renaming, or changing types.")
+    
     if st.session_state.df is None:
-        st.warning("Please upload a file.")
+        st.warning("Please upload a file first.")
         return
 
     df = st.session_state.df
     all_cols = df.columns.tolist()
+
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "📅 Convert to Datetime", "📊 Analyze Types", "✂️ Split Column", 
-        "🗑️ Drop Columns", "✏️ Rename Column", "🔄 Change Type"
+        "📅 Convert to Datetime",
+        "📊 Analyze Column Types", 
+        "✂️ Split Column", 
+        "🗑️ Drop Columns", 
+        "✏️ Rename Column", 
+        "🔄 Change Column Type"
     ])
 
+    # =========================================================================
+    # --- UPGRADED FEATURE: Intelligent Date Conversion with Two Engines ---
+    # =========================================================================
     with tab1:
-        st.subheader("Convert to Datetime")
+        st.subheader("Intelligent Date Conversion")
+        st.markdown("Convert columns with mixed date formats into a standardized datetime format.")
+
         candidate_cols = get_categorical_columns(df)
         if not candidate_cols:
-            st.info("No text columns found.")
+            st.info("No text-based (object) columns found to convert.")
         else:
-            selected_col = st.selectbox("Select column:", candidate_cols, key="date_convert")
-            parser_engine = st.radio("Parser:", ["Pandas (Fast)", "Dateparser (Robust)"], index=1)
-            dayfirst_param = st.checkbox("Day first (DD/MM/YYYY)")
-            st.markdown("#### Preview")
-            try:
-                def parse_with_dateparser(date_string):
-                    if pd.isna(date_string): return pd.NaT
-                    return dateparser.parse(str(date_string), settings={'PREFER_DAY_OF_MONTH': 'first' if dayfirst_param else 'last'})
-                
-                preview_series = pd.to_datetime(df[selected_col].astype(str).str.strip(), dayfirst=dayfirst_param, errors='coerce') if "Pandas" in parser_engine else \
-                                df[selected_col].apply(parse_with_dateparser)
-                preview_df = pd.DataFrame({
-                    f"Original '{selected_col}'": df[selected_col].head(20),
-                    "Parsed Datetime": preview_series.head(20)
-                })
-                st.dataframe(preview_df.dropna(subset=[f"Original '{selected_col}'"]))
-                failed_parses = preview_series.isna().sum() - df[selected_col].isna().sum()
-                if failed_parses > 0:
-                    st.warning(f"{failed_parses} values could not be parsed (set to NaT).")
-                if st.button("Apply Conversion", type="primary"):
-                    st.session_state.df[selected_col] = preview_series
-                    log_action(f"Converted '{selected_col}' to datetime using {parser_engine}", 
-                              f"pd.to_datetime(df['{selected_col}'], dayfirst={dayfirst_param}, errors='coerce')" if "Pandas" in parser_engine else 
-                              f"df['{selected_col}'].apply(dateparser.parse)")
-                    st.rerun()
-            except Exception as e:
-                st.error(f"Preview failed: {e}")
+            selected_col = st.selectbox(
+                "1. Select column to convert to datetime:",
+                options=candidate_cols,
+                key="date_convert_select"
+            )
 
+            if selected_col:
+                st.markdown("#### 2. Choose Your Parsing Engine")
+                
+                # --- Let the user choose the engine ---
+                parser_engine = st.radio(
+                    "Select a parser:",
+                    ["**Pandas (Fast)** - Good for standard formats like YYYY-MM-DD.", 
+                     "**Dateparser (Flexible & Robust)** - Best for messy, mixed formats like 'March 3, 2021'."],
+                    index=1 # Default to the more powerful option
+                )
+
+                dayfirst_param = st.checkbox(
+                    "Assume Day is First (for formats like DD/MM/YYYY)",
+                    value=False,
+                    help="Crucial for both engines to interpret ambiguous dates like '01/04/2021'."
+                )
+
+                st.markdown("#### 3. Preview Results")
+                try:
+                    # Helper function to apply dateparser safely
+                    def parse_with_dateparser(date_string):
+                        if date_string is None: return pd.NaT
+                        # The settings dictionary directly controls dateparser's behavior
+                        parsed_date = dateparser.parse(str(date_string), settings={'DAY_FIRST': dayfirst_param})
+                        return parsed_date if parsed_date is not None else pd.NaT
+
+                    # --- Logic to generate the preview based on the selected engine ---
+                    if "Pandas" in parser_engine:
+                        preview_series = pd.to_datetime(df[selected_col].astype(str).str.strip(), dayfirst=dayfirst_param, errors='coerce')
+                    else: # Dateparser engine
+                        preview_series = df[selected_col].apply(parse_with_dateparser)
+
+                    preview_df = pd.DataFrame({
+                        f"Original Text in '{selected_col}'": df[selected_col].head(20),
+                        "Parsed Datetime (YYYY-MM-DD)": preview_series.head(20)
+                    })
+                    st.dataframe(preview_df.dropna(subset=[f"Original Text in '{selected_col}'"]), use_container_width=True)
+                    
+                    failed_parses = preview_series.isna().sum() - df[selected_col].isna().sum()
+                    if failed_parses > 0:
+                        st.warning(f"Warning: {failed_parses} values could not be parsed and were converted to NaT (Not a Time).")
+
+                except Exception as e:
+                    st.error(f"An error occurred during preview generation: {e}")
+
+                if st.button("✅ Apply Datetime Conversion", type="primary"):
+                    # --- Logic to apply the conversion based on the selected engine ---
+                    if "Pandas" in parser_engine:
+                        st.session_state.df[selected_col] = pd.to_datetime(df[selected_col].astype(str).str.strip(), dayfirst=dayfirst_param, errors='coerce')
+                    else: # Dateparser engine
+                        # Define the helper function again for the apply action
+                        def parse_with_dateparser_apply(date_string):
+                            if date_string is None: return pd.NaT
+                            parsed_date = dateparser.parse(str(date_string), settings={'DAY_FIRST': dayfirst_param})
+                            return parsed_date if parsed_date is not None else pd.NaT
+                        st.session_state.df[selected_col] = df[selected_col].apply(parse_with_dateparser_apply)
+                    
+                    log_action(f"Converted '{selected_col}' to datetime using {parser_engine.split(' ')[0]} engine.")
+                    st.success(f"Successfully converted '{selected_col}' to a standardized datetime format!")
+                    st.rerun()
+
+    # =========================================================================
+    # --- All Other Column Operations ---
+    # =========================================================================
     with tab2:
-        st.subheader("Analyze Column Types")
-        numeric_cols, categorical_cols, datetime_cols = get_numeric_columns(df), get_categorical_columns(df), get_datetime_columns(df)
+        st.subheader("Analyze Column Data Types")
+        numeric_cols = get_numeric_columns(df)
+        categorical_cols = get_categorical_columns(df)
+        datetime_cols = get_datetime_columns(df)
         col1, col2 = st.columns(2)
         with col1:
-            st.markdown("#### Numeric Columns")
-            st.dataframe(pd.DataFrame(numeric_cols, columns=["Column Name"]))
-            st.markdown("#### Datetime Columns")
-            st.dataframe(pd.DataFrame(datetime_cols, columns=["Column Name"]))
+            st.markdown("#### 🔢 Numeric Columns"); st.dataframe(pd.DataFrame(numeric_cols, columns=["Column Name"]), use_container_width=True)
+            st.markdown("---")
+            st.markdown("#### 📅 Datetime Columns"); st.dataframe(pd.DataFrame(datetime_cols, columns=["Column Name"]), use_container_width=True)
         with col2:
-            st.markdown("#### Categorical Columns")
-            st.dataframe(pd.DataFrame(categorical_cols, columns=["Column Name"]))
+            st.markdown("#### 🅰️ Categorical / Object Columns"); st.dataframe(pd.DataFrame(categorical_cols, columns=["Column Name"]), use_container_width=True)
 
     with tab3:
-        st.subheader("Split Column")
-        candidate_cols = get_categorical_columns(df)
-        if not candidate_cols:
-            st.info("No text columns found.")
+        st.subheader("Split a Column into Categorical and Numerical Parts")
+        candidate_cols_split = get_categorical_columns(df)
+        if not candidate_cols_split:
+            st.info("No suitable (text-based) columns found to split.")
         else:
-            with st.form("split_form"):
-                source_col = st.selectbox("Select column:", candidate_cols)
+            with st.form("split_column_form"):
+                source_col = st.selectbox("Select column to split:", options=candidate_cols_split)
                 col1, col2 = st.columns(2)
-                with col1: new_cat_col = st.text_input("Text Column Name", value=f"{source_col}_cat")
-                with col2: new_num_col = st.text_input("Number Column Name", value=f"{source_col}_num")
+                with col1: new_cat_col_name = st.text_input("New Text Column Name", value=f"{source_col}_cat")
+                with col2: new_num_col_name = st.text_input("New Number Column Name", value=f"{source_col}_num")
                 drop_original = st.checkbox("Drop original column?", value=True)
-                if st.form_submit_button("Apply Split"):
-                    if new_cat_col and new_num_col:
-                        st.session_state.df[new_cat_col] = df[source_col].str.extract(r'([^\d]*)', expand=False).str.strip()
-                        st.session_state.df[new_num_col] = pd.to_numeric(df[source_col].str.extract(r'(\d+)', expand=False), errors='coerce')
-                        log_desc = f"Split '{source_col}' into '{new_cat_col}' and '{new_num_col}'"
-                        if drop_original:
-                            st.session_state.df.drop(columns=[source_col], inplace=True)
-                            log_desc += "; dropped original"
-                        log_action(log_desc, f"df['{new_cat_col}'] = df['{source_col}'].str.extract(r'([^\d]*)').str.strip(); df['{new_num_col}'] = pd.to_numeric(df['{source_col}'].str.extract(r'(\d+)'), errors='coerce')")
-                        st.rerun()
-                    else:
-                        st.error("Provide valid column names.")
+                submitted = st.form_submit_button("Apply Split")
+                if submitted:
+                    st.session_state.df[new_cat_col_name] = df[source_col].str.extract(r'([^\d]*)', expand=False).str.strip()
+                    numeric_part = df[source_col].str.extract(r'(\d+)', expand=False)
+                    st.session_state.df[new_num_col_name] = pd.to_numeric(numeric_part, errors='coerce')
+                    log_desc = f"Split '{source_col}' into '{new_cat_col_name}' and '{new_num_col_name}'."
+                    if drop_original:
+                        st.session_state.df.drop(columns=[source_col], inplace=True)
+                        log_desc += f" Original column dropped."
+                    log_action(log_desc)
+                    st.rerun()
 
     with tab4:
-        st.subheader("Drop Columns")
-        cols_to_drop = st.multiselect("Select columns:", all_cols)
-        if st.button("Drop Columns"):
-            if cols_to_drop:
-                st.session_state.df.drop(columns=cols_to_drop, inplace=True)
-                log_action(f"Dropped columns: {', '.join(cols_to_drop)}", f"df.drop(columns={cols_to_drop}, inplace=True)")
-                st.rerun()
-            else:
-                st.warning("Select at least one column.")
+        st.subheader("Drop Unnecessary Columns")
+        cols_to_drop = st.multiselect("Select columns to remove:", options=all_cols)
+        if st.button("Drop Selected Columns"):
+            st.session_state.df.drop(columns=cols_to_drop, inplace=True)
+            log_action(f"Dropped columns: {', '.join(cols_to_drop)}")
+            st.rerun()
 
     with tab5:
-        st.subheader("Rename Column")
-        col_to_rename = st.selectbox("Select column:", all_cols, key="rename_col")
-        new_name = st.text_input("New name:", value=col_to_rename)
-        if st.button("Rename"):
-            if new_name:
-                st.session_state.df.rename(columns={col_to_rename: new_name}, inplace=True)
-                log_action(f"Renamed '{col_to_rename}' to '{new_name}'", f"df.rename(columns={{'{col_to_rename}': '{new_name}'}}, inplace=True)")
-                st.rerun()
-            else:
-                st.error("Enter a valid column name.")
+        st.subheader("Rename a Column")
+        col_to_rename = st.selectbox("Select a column to rename:", options=all_cols, key="rename_select")
+        new_col_name = st.text_input("Enter the new column name:", value=col_to_rename)
+        if st.button("Rename Column"):
+            st.session_state.df.rename(columns={col_to_rename: new_col_name}, inplace=True)
+            log_action(f"Renamed '{col_to_rename}' to '{new_col_name}'.")
+            st.rerun()
 
     with tab6:
-        st.subheader("Change Column Type")
-        col_to_change = st.selectbox("Select column:", all_cols, key="type_change")
-        new_type = st.selectbox("New type:", ['object', 'int64', 'float64', 'category', 'bool'])
+        st.subheader("Change Column Data Type (Manual)")
+        col_to_change = st.selectbox("Select column:", options=all_cols, key="type_change_select")
+        new_type = st.selectbox("Select new data type:", ['object (string)', 'int64', 'float64', 'category', 'bool'])
         if st.button("Apply Type Change"):
             try:
                 st.session_state.df[col_to_change] = st.session_state.df[col_to_change].astype(new_type)
-                log_action(f"Changed '{col_to_change}' to {new_type}", f"df['{col_to_change}'].astype('{new_type}')")
+                log_action(f"Manually changed type of '{col_to_change}' to {new_type}.")
                 st.rerun()
             except Exception as e:
-                st.error(f"Type conversion failed: {e}")
+                st.error(f"Conversion failed. Error: {e}")
 
+# ---------------------------------- 5.5 DUPLICATE HANDLING PAGE ---------------------------------
 def render_duplicate_handling_page():
+    """Renders the page for identifying and removing duplicate records."""
     st.header("📑 Row & Duplicate Manager")
+    
     if st.session_state.df is None:
-        st.warning("Please upload a file.")
+        st.warning("Please upload a file first.")
         return
-
+        
     df = st.session_state.df
+    
     tab1, tab2 = st.tabs(["Duplicate Rows", "Filter Rows"])
 
     with tab1:
-        st.subheader("Handle Duplicates")
+        st.subheader("Handle Duplicate Rows")
+        st.markdown("Find and remove duplicate rows from your dataset. Duplicates can skew analysis and machine learning model training.")
+        
         duplicates = df[df.duplicated(keep=False)]
-        num_duplicates = df.duplicated().sum()
+        num_duplicates_to_remove = df.duplicated().sum()
+
         if duplicates.empty:
-            st.success("No duplicate rows found.")
+            st.success("🎉 No duplicate rows found in the dataset.")
         else:
-            st.warning(f"Found {num_duplicates} duplicate rows.")
+            st.warning(f"Found **{num_duplicates_to_remove}** duplicate rows (a total of {len(duplicates)} rows are part of a duplicate set).")
             st.dataframe(duplicates.sort_values(by=df.columns.tolist()))
-            if st.button("Remove Duplicates (keep first)", type="primary"):
+            
+            if st.button("Remove Duplicate Rows (keep first)", type="primary"):
                 st.session_state.df.drop_duplicates(keep='first', inplace=True)
-                log_action(f"Removed {num_duplicates} duplicates", "df.drop_duplicates(keep='first', inplace=True)")
+                log_action(f"Removed {num_duplicates_to_remove} duplicate rows.", "df.drop_duplicates(keep='first', inplace=True)")
                 st.rerun()
 
     with tab2:
-        st.subheader("Filter Rows")
-        st.info("Use pandas query syntax, e.g., `Age > 30` or `Country == 'USA'`.")
-        query_string = st.text_area("Enter query:", height=100)
+        st.subheader("Filter Rows with a Custom Query")
+        st.markdown("Filter your dataset using pandas' powerful `query` syntax. This is useful for isolating subsets of your data for closer inspection.")
+        st.info("""
+        **Query Examples:**
+        - Numeric: `Age > 30` or `Salary >= 50000`
+        - String: `Country == "USA"` or `Name.str.contains("John", na=False)`
+        - Combined: `Age > 30 and Country != "Canada"`
+        
+        Note: Column names with spaces or special characters must be enclosed in backticks (e.g., \`Column Name\`).
+        """)
+
+        query_string = st.text_area("Enter your pandas query string:", height=100)
+        
         if st.button("Apply Filter"):
-            if query_string:
+            if not query_string:
+                st.warning("Please enter a query string.")
+            else:
                 try:
+                    df_before_shape = df.shape
                     filtered_df = df.query(query_string)
-                    rows_removed = df.shape[0] - filtered_df.shape[0]
+                    rows_removed = df_before_shape[0] - filtered_df.shape[0]
                     st.session_state.df = filtered_df
-                    log_action(f"Filtered with '{query_string}'; removed {rows_removed} rows", f"df.query('{query_string}')")
+                    log_action(f"Applied filter query: '{query_string}'. Removed {rows_removed} rows.", f"df = df.query('{query_string}')")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Invalid query: {e}")
-            else:
-                st.warning("Enter a query string.")
+                    st.warning("Please check your syntax and column names.")
 
+# ---------------------------------- 5.6 OUTLIER HANDLING PAGE -----------------------------------
 def render_outlier_page():
+    """Renders page for outlier detection and removal."""
     st.header("📈 Outlier Detection & Handling")
+    st.markdown("Identify and manage outliers, which are data points that significantly differ from other observations.")
+    
     if st.session_state.df is None:
-        st.warning("Please upload a file.")
+        st.warning("Please upload a file first.")
         return
-
+        
     df = st.session_state.df
     numeric_cols = get_numeric_columns(df)
+
     if not numeric_cols:
-        st.info("No numeric columns found.")
+        st.info("No numeric columns found for outlier detection.")
         return
 
     col1, col2 = st.columns(2)
-    with col1: selected_col = st.selectbox("Select column:", numeric_cols)
-    with col2: method = st.selectbox("Method:", ["IQR", "Z-Score"])
+    with col1:
+        selected_col = st.selectbox("Select a numeric column:", numeric_cols)
+    with col2:
+        method = st.selectbox("Select detection method:", ["Inter-Quartile Range (IQR)", "Z-Score"])
 
-    st.subheader("Visualize Distribution")
-    fig = px.box(df, y=selected_col, title=f"Box Plot for {selected_col}", points="all")
+    # --- Visualization ---
+    st.subheader("1. Visualize Distribution")
+    fig = px.box(df, y=selected_col, title=f"Box Plot for '{selected_col}'", points="all")
     st.plotly_chart(fig, use_container_width=True)
 
-    st.subheader("Detect & Remove Outliers")
-    if method == "IQR":
+    # --- Detection and Removal ---
+    st.subheader("2. Detect and Remove Outliers")
+    if method == "Inter-Quartile Range (IQR)":
+        st.markdown("This method defines outliers as data points that fall below `Q1 - 1.5*IQR` or above `Q3 + 1.5*IQR`.")
         multiplier = st.slider("IQR Multiplier", 1.0, 3.0, 1.5, 0.1)
+        
         Q1 = df[selected_col].quantile(0.25)
         Q3 = df[selected_col].quantile(0.75)
         IQR = Q3 - Q1
         lower_bound = Q1 - multiplier * IQR
         upper_bound = Q3 + multiplier * IQR
+        
         outliers = df[(df[selected_col] < lower_bound) | (df[selected_col] > upper_bound)]
-        st.warning(f"Detected {len(outliers)} outliers in '{selected_col}'.")
-        if not outliers.empty and st.checkbox("Show outliers?"):
-            st.dataframe(outliers)
-        if st.button("Remove Outliers", type="primary"):
-            st.session_state.df = df[(df[selected_col] >= lower_bound) & (df[selected_col] <= upper_bound)]
-            log_action(f"Removed {len(outliers)} outliers from '{selected_col}' (IQR, multiplier={multiplier})", 
-                      f"df = df[(df['{selected_col}'] >= {lower_bound}) & (df['{selected_col}'] <= {upper_bound})]")
-            st.rerun()
-    else:
-        threshold = st.slider("Z-Score Threshold", 1.0, 5.0, 3.0, 0.1)
-        z_scores = zscore(df[selected_col].dropna())
-        outlier_indices = df[selected_col].dropna()[np.abs(z_scores) > threshold].index
-        outliers = df.loc[outlier_indices]
-        st.warning(f"Detected {len(outliers)} outliers in '{selected_col}'.")
-        if not outliers.empty and st.checkbox("Show outliers?"):
-            st.dataframe(outliers)
-        if st.button("Remove Outliers", type="primary"):
-            st.session_state.df = df.drop(outlier_indices)
-            log_action(f"Removed {len(outliers)} outliers from '{selected_col}' (Z-Score, threshold={threshold})", 
-                      f"df = df.drop(df[np.abs(zscore(df['{selected_col}'].dropna())) > {threshold}].index)")
-            st.rerun()
+        st.warning(f"Detected **{len(outliers)}** outliers in '{selected_col}' using the IQR method.")
+        
+        if not outliers.empty:
+            if st.checkbox("Show detected outliers?"):
+                st.dataframe(outliers)
+            
+            if st.button("Remove these outliers", type="primary"):
+                df_cleaned = df[(df[selected_col] >= lower_bound) & (df[selected_col] <= upper_bound)]
+                st.session_state.df = df_cleaned
+                log_action(f"Removed {len(outliers)} outliers from '{selected_col}' using IQR (multiplier={multiplier}).")
+                st.rerun()
 
+    else: # Z-Score
+        st.markdown("This method defines outliers as data points with a Z-score (number of standard deviations from the mean) greater than a threshold.")
+        threshold = st.slider("Z-Score Threshold", 1.0, 5.0, 3.0, 0.1)
+        
+        from scipy.stats import zscore
+        z_scores = zscore(df[selected_col].dropna())
+        abs_z_scores = np.abs(z_scores)
+        
+        # We need to align the z-scores with the original dataframe index
+        outlier_indices = df[selected_col].dropna()[abs_z_scores > threshold].index
+        outliers = df.loc[outlier_indices]
+        
+        st.warning(f"Detected **{len(outliers)}** outliers in '{selected_col}' using Z-score (threshold={threshold}).")
+
+        if not outliers.empty:
+            if st.checkbox("Show detected outliers?"):
+                st.dataframe(outliers)
+            
+            if st.button("Remove these outliers", type="primary"):
+                df_cleaned = df.drop(outlier_indices)
+                st.session_state.df = df_cleaned
+                log_action(f"Removed {len(outliers)} outliers from '{selected_col}' using Z-Score (threshold={threshold}).")
+                st.rerun()
+
+# ---------------------------------- 5.7 TRANSFORMATION PAGE -----------------------------------
+# --- Make sure this import is at the top of your app.py file! ---
 def render_transformation_page():
+    """Renders page for text-to-number, find/replace, text cleaning, normalization, scaling, and date extraction."""
     st.header("🔬 Data Transformation")
+    st.markdown("Apply common transformations to prepare your data for modeling or analysis.")
+
     if st.session_state.df is None:
-        st.warning("Please upload a file.")
+        st.warning("Please upload a file first.")
         return
 
     df = st.session_state.df
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-        "Text-to-Number", "Find & Replace", "Normalize Categories", 
-        "Text Cleaning", "Numeric Scaling", "Datetime Features", "Polynomial Features"
+
+    # Define the tabs for this page
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "📝 Text-to-Number",
+        "🔎 Find & Replace", 
+        "📊 Normalize Categories", 
+        "🔡 Text Cleaning", 
+        "🔢 Numeric Scaling", 
+        "📅 Datetime Feature Extraction"
     ])
 
     with tab1:
-        st.subheader("Text-to-Number")
+        st.subheader("Convert Number Words to Digits")
+        st.markdown("Automatically convert text like 'thirty' into its digit form '30'.")
+        
         def convert_word_to_number(value):
             try: return w2n.word_to_num(str(value))
             except ValueError: return value
+
         candidate_cols = get_categorical_columns(df) + get_numeric_columns(df)
         if not candidate_cols:
-            st.info("No suitable columns found.")
+            st.info("No suitable columns found for this operation.")
         else:
-            selected_col = st.selectbox("Select column:", candidate_cols, key="w2n")
-            temp_series = df[selected_col].apply(convert_word_to_number)
-            temp_series_numeric = pd.to_numeric(temp_series, errors='coerce')
-            st.dataframe(pd.DataFrame({"Original": df[selected_col].head(20), "Converted": temp_series_numeric.head(20)}))
-            if st.button("Apply Conversion", type="primary"):
-                st.session_state.df[selected_col] = temp_series_numeric
-                log_action(f"Converted text to numbers in '{selected_col}'", 
-                          f"df['{selected_col}'] = df['{selected_col}'].apply(w2n.word_to_num)")
-                st.rerun()
+            selected_col = st.selectbox("1. Select a column to convert:", options=candidate_cols, key="w2n_col_select")
+            if selected_col:
+                st.markdown("#### 2. Preview of Conversion")
+                temp_series = df[selected_col].apply(convert_word_to_number)
+                temp_series_numeric = pd.to_numeric(temp_series, errors='coerce')
+                preview_df = pd.DataFrame({
+                    "Original Value": df[selected_col].head(20),
+                    "Converted Value": temp_series_numeric.head(20)
+                })
+                st.dataframe(preview_df.dropna(subset=[f"Original Value"]), use_container_width=True)
+                if st.button("✅ Apply Text-to-Number Conversion", type="primary"):
+                    converted_series = st.session_state.df[selected_col].apply(convert_word_to_number)
+                    st.session_state.df[selected_col] = pd.to_numeric(converted_series, errors='coerce')
+                    log_action(f"Converted number-words to digits in column '{selected_col}'.")
+                    st.rerun()
 
     with tab2:
-        st.subheader("Find & Replace")
+        st.subheader("Find and Replace Values in a Column")
         categorical_cols = get_categorical_columns(df)
         if not categorical_cols:
-            st.info("No text columns found.")
+            st.info("No categorical/text columns to perform replacements on.")
         else:
-            with st.form("find_replace"):
-                selected_col = st.selectbox("Select column:", categorical_cols, key="fr")
-                match_case = st.checkbox("Match Case")
+            with st.form("find_replace_form"):
+                selected_col_fr = st.selectbox("1. Select a column:", categorical_cols, key="fr_col_select")
+                match_case = st.checkbox("Match Case", value=False)
+                st.markdown("2. Define replacement rules:")
                 rules_df = pd.DataFrame([{"Value to Find": "", "Replace With": ""}])
-                edited_rules = st.data_editor(rules_df, num_rows="dynamic", key="fr_editor")
-                if st.form_submit_button("Apply"):
+                edited_rules = st.data_editor(rules_df, num_rows="dynamic", use_container_width=True, key="find_replace_editor")
+                submitted_fr = st.form_submit_button("Apply Replacements")
+                if submitted_fr:
                     valid_rules = edited_rules.dropna(subset=["Value to Find"]).loc[edited_rules["Value to Find"] != ""]
                     if valid_rules.empty:
-                        st.warning("No valid rules defined.")
+                        st.warning("No replacement rules were defined.")
                     else:
-                        temp_col = df[selected_col].astype(str)
+                        temp_col = st.session_state.df[selected_col_fr].astype(str)
                         if match_case:
                             replace_dict = dict(zip(valid_rules["Value to Find"], valid_rules["Replace With"]))
                             temp_col.replace(replace_dict, inplace=True)
                         else:
                             for _, rule in valid_rules.iterrows():
                                 temp_col = temp_col.str.replace(f'^{rule["Value to Find"]}$', rule["Replace With"], case=False, regex=True)
-                        st.session_state.df[selected_col] = temp_col
-                        log_action(f"Applied find/replace in '{selected_col}'", 
-                                  f"df['{selected_col}'].replace({replace_dict})" if match_case else 
-                                  f"df['{selected_col}'].str.replace(...case=False)")
+                        st.session_state.df[selected_col_fr] = temp_col
+                        log_action(f"Applied Find/Replace in '{selected_col_fr}'.")
                         st.rerun()
 
     with tab3:
-        st.subheader("Normalize Categories")
-        categorical_cols = get_categorical_columns(df)
-        if not categorical_cols:
-            st.info("No categorical columns found.")
+        st.subheader("Normalize Categories (Visual Mapper)")
+        categorical_cols_norm = get_categorical_columns(df)
+        if not categorical_cols_norm:
+            st.info("No categorical/text columns in the dataset.")
         else:
-            selected_col = st.selectbox("Select column:", categorical_cols, key="norm")
-            with st.form("norm_form"):
-                unique_values = df[selected_col].dropna().unique()
-                mapping_df = pd.DataFrame({"Original": unique_values, "New": unique_values})
-                edited_mapping = st.data_editor(mapping_df, key=f"editor_{selected_col}")
-                if st.form_submit_button("Apply"):
-                    mapping_dict = dict(zip(edited_mapping["Original"], edited_mapping["New"]))
-                    st.session_state.df[selected_col] = df[selected_col].replace(mapping_dict)
-                    log_action(f"Normalized '{selected_col}'", f"df['{selected_col}'].replace({mapping_dict})")
-                    st.rerun()
+            selected_col_norm = st.selectbox("Select a column to normalize:", categorical_cols_norm, key="norm_col_select_visual")
+            if selected_col_norm:
+                with st.form("visual_normalization_form"):
+                    unique_values = df[selected_col_norm].dropna().unique()
+                    mapping_df = pd.DataFrame({"Original Value": unique_values, "New Value": unique_values})
+                    edited_mapping_df = st.data_editor(mapping_df, use_container_width=True, key=f"editor_{selected_col_norm}")
+                    submitted_visual = st.form_submit_button("Apply Visual Normalization")
+                    if submitted_visual:
+                        mapping_dict = {k: v for k, v in zip(edited_mapping_df["Original Value"], edited_mapping_df["New Value"]) if k != v}
+                        if mapping_dict:
+                            st.session_state.df[selected_col_norm] = st.session_state.df[selected_col_norm].replace(mapping_dict)
+                            log_action(f"Normalized values in '{selected_col_norm}'.")
+                            st.rerun()
+                        else: st.warning("No changes were made.")
 
     with tab4:
-        st.subheader("Text Cleaning")
+        st.subheader("Clean Text Columns")
         text_cols = get_categorical_columns(df)
         if not text_cols:
-            st.info("No text columns found.")
+            st.info("No text/categorical columns found.")
         else:
-            selected_col = st.selectbox("Select column:", text_cols, key="clean")
-            with st.form("clean_form"):
+            selected_col_clean = st.selectbox("Select a text column to clean:", text_cols, key="text_clean_col")
+            with st.form("text_cleaning_form"):
                 to_lowercase = st.checkbox("Convert to lowercase")
-                strip_whitespace = st.checkbox("Strip whitespace")
+                strip_whitespace = st.checkbox("Strip leading/trailing whitespace")
                 remove_punctuation = st.checkbox("Remove punctuation")
-                if st.form_submit_button("Apply"):
-                    cleaned_series = df[selected_col].astype(str)
+                submitted_clean = st.form_submit_button("Apply Text Cleaning")
+                if submitted_clean:
+                    cleaned_series = df[selected_col_clean].astype(str)
                     log_items = []
-                    if to_lowercase:
-                        cleaned_series = cleaned_series.str.lower()
-                        log_items.append("lowercase")
-                    if strip_whitespace:
-                        cleaned_series = cleaned_series.str.strip()
-                        log_items.append("strip whitespace")
-                    if remove_punctuation:
-                        cleaned_series = cleaned_series.str.replace(r'[^\w\s]', '', regex=True)
-                        log_items.append("remove punctuation")
-                    st.session_state.df[selected_col] = cleaned_series
+                    if to_lowercase: cleaned_series = cleaned_series.str.lower(); log_items.append("lowercase")
+                    if strip_whitespace: cleaned_series = cleaned_series.str.strip(); log_items.append("strip whitespace")
+                    if remove_punctuation: cleaned_series = cleaned_series.str.replace(r'[^\w\s]', '', regex=True); log_items.append("remove punctuation")
+                    st.session_state.df[selected_col_clean] = cleaned_series
                     if log_items:
-                        log_action(f"Cleaned '{selected_col}' ({', '.join(log_items)})", 
-                                  f"df['{selected_col}'].str.lower/strip/replace...")
-                        st.rerun()
+                        log_action(f"Applied text cleaning ({', '.join(log_items)}) to '{selected_col_clean}'.")
+                    else: st.warning("No cleaning options were selected.")
 
     with tab5:
         st.subheader("Scale Numeric Columns")
         numeric_cols = get_numeric_columns(df)
         if not numeric_cols:
-            st.info("No numeric columns found.")
+            st.info("No numeric columns found for scaling.")
         else:
-            scaler_type = st.radio("Scaler:", ["Min-Max", "Standard"])
-            cols_to_scale = st.multiselect("Select columns:", numeric_cols)
-            if st.button("Apply Scaling"):
+            scaler_type = st.radio("Select Scaler Type:", ["Min-Max Scaler", "Standard Scaler"])
+            cols_to_scale = st.multiselect("Select numeric columns to scale:", numeric_cols)
+            if st.button("Apply Scaler"):
                 if cols_to_scale:
-                    scaler = MinMaxScaler() if scaler_type == "Min-Max" else StandardScaler()
-                    st.session_state.df[cols_to_scale] = scaler.fit_transform(df[cols_to_scale])
-                    log_action(f"Scaled {', '.join(cols_to_scale)} with {scaler.__class__.__name__}", 
-                              f"scaler.fit_transform(df[{cols_to_scale}])")
-                    st.rerun()
-                else:
-                    st.warning("Select at least one column.")
+                    scaler = MinMaxScaler() if scaler_type.startswith("Min-Max") else StandardScaler()
+                    st.session_state.df[cols_to_scale] = scaler.fit_transform(st.session_state.df[cols_to_scale])
+                    log_action(f"Applied {scaler.__class__.__name__} to: {', '.join(cols_to_scale)}.")
+                else: st.warning("Please select at least one column to scale.")
 
     with tab6:
-        st.subheader("Extract Datetime Features")
+        st.subheader("Extract Features from Datetime Columns")
         datetime_cols = get_datetime_columns(df)
         if not datetime_cols:
             st.info("No datetime columns found.")
         else:
-            selected_col = st.selectbox("Select column:", datetime_cols, key="dt")
-            features = st.multiselect("Features:", ["Year", "Month", "Day", "Day of Week", "Hour"])
-            if st.button("Extract Features"):
-                if features:
-                    for feature in features:
-                        new_col = f"{selected_col}_{feature.lower().replace(' ', '_')}"
-                        if feature == "Year": st.session_state.df[new_col] = df[selected_col].dt.year
-                        elif feature == "Month": st.session_state.df[new_col] = df[selected_col].dt.month
-                        elif feature == "Day": st.session_state.df[new_col] = df[selected_col].dt.day
-                        elif feature == "Day of Week": st.session_state.df[new_col] = df[selected_col].dt.dayofweek
-                        elif feature == "Hour": st.session_state.df[new_col] = df[selected_col].dt.hour
-                    log_action(f"Extracted features from '{selected_col}'", 
-                              f"df['{new_col}'] = df['{selected_col}'].dt.{feature.lower()}")
+            selected_col_dt = st.selectbox("Select a datetime column:", datetime_cols, key="dt_col")
+            features_to_extract = st.multiselect("Select features:", ["Year", "Month", "Day", "Day of Week", "Hour"])
+            if st.button("Extract Datetime Features"):
+                if features_to_extract:
+                    for feature in features_to_extract:
+                        new_col_name = f"{selected_col_dt}_{feature.lower().replace(' ', '_')}"
+                        if feature == "Year": st.session_state.df[new_col_name] = df[selected_col_dt].dt.year
+                        if feature == "Month": st.session_state.df[new_col_name] = df[selected_col_dt].dt.month
+                        if feature == "Day": st.session_state.df[new_col_name] = df[selected_col_dt].dt.day
+                        if feature == "Day of Week": st.session_state.df[new_col_name] = df[selected_col_dt].dt.dayofweek
+                        if feature == "Hour": st.session_state.df[new_col_name] = df[selected_col_dt].dt.hour
+                    log_action(f"Extracted datetime features from '{selected_col_dt}'.")
                     st.rerun()
+                else: st.warning("Please select features to extract.")
 
-    with tab7:
-        st.subheader("Polynomial Features")
-        numeric_cols = get_numeric_columns(df)
-        if not numeric_cols:
-            st.info("No numeric columns found.")
-        else:
-            selected_cols = st.multiselect("Select columns:", numeric_cols)
-            degree = st.slider("Polynomial Degree", 2, 4, 2)
-            if st.button("Generate Polynomial Features"):
-                if selected_cols:
-                    poly = PolynomialFeatures(degree=degree, include_bias=False)
-                    poly_features = poly.fit_transform(df[selected_cols])
-                    poly_feature_names = poly.get_feature_names_out(selected_cols)
-                    st.session_state.df[poly_feature_names] = poly_features
-                    log_action(f"Added polynomial features for {', '.join(selected_cols)} (degree={degree})", 
-                              f"poly.fit_transform(df[{selected_cols}])")
-                    st.rerun()
-                else:
-                    st.warning("Select at least one column.")
+# ... (the rest of your imports) ...
 
-def render_ml_modeler_page():
-    st.header("🤖 ML Modeler")
+# ---------------------------------- 5.4 COLUMN MANAGEMENT PAGE ----------------------------------
+def render_column_management_page():
+    """Renders page for date conversion, splitting, dropping, renaming, and type-casting columns."""
+    st.header("🏛️ Column Operations")
+    st.markdown("Perform column-level operations like converting dates, splitting, dropping, renaming, or changing types.")
+    
     if st.session_state.df is None:
-        st.warning("Please upload and prepare data.")
-        return
-
-    df = st.session_state.df.copy()
-    with st.sidebar:
-        st.header("Model Configuration")
-        target = st.selectbox("Target Column:", df.columns)
-        df.dropna(subset=[target], inplace=True)
-        if df.empty:
-            st.error("No valid data after removing missing targets.")
-            return
-        problem_type = "Regression" if pd.api.types.is_numeric_dtype(df[target]) and df[target].nunique() > 25 else "Classification"
-        st.info(f"Problem: {problem_type}")
-
-        model_options = ["--Select Algorithm--"] + (
-            ["Logistic Regression", "Random Forest Classifier", "Gradient Boosting", "XGBoost Classifier", 
-             "LightGBM Classifier", "SVC"] if problem_type == "Classification" else
-            ["Linear Regression", "Ridge", "Lasso", "Random Forest Regressor", "Gradient Boosting Regressor", 
-             "XGBoost Regressor", "LightGBM Regressor", "SVR"]
-        )
-        selected_model = st.selectbox("Algorithm:", model_options)
-
-        params = {}
-        if selected_model != "--Select Algorithm--":
-            st.header("Hyperparameters")
-            if selected_model == "Logistic Regression":
-                params['C'] = st.slider("C", 0.01, 10.0, 1.0, 0.01)
-                params['solver'] = st.selectbox("Solver", ['liblinear', 'lbfgs', 'saga'])
-                params['max_iter'] = st.slider("Max Iterations", 100, 1000, 100, 50)
-            elif "Random Forest" in selected_model:
-                params['n_estimators'] = st.slider("Trees", 10, 200, 100, 10)
-                params['max_depth'] = st.slider("Max Depth", 2, 20, 10, 1)
-                params['min_samples_leaf'] = st.slider("Min Samples Leaf", 1, 10, 1, 1)
-            elif "Gradient Boosting" in selected_model:
-                params['n_estimators'] = st.slider("Estimators", 10, 200, 100, 10)
-                params['learning_rate'] = st.slider("Learning Rate", 0.01, 0.5, 0.1, 0.01)
-                params['max_depth'] = st.slider("Max Depth", 2, 10, 3, 1)
-            elif "XGBoost" in selected_model:
-                params['n_estimators'] = st.slider("Estimators", 10, 200, 100, 10)
-                params['learning_rate'] = st.slider("Learning Rate", 0.01, 0.5, 0.1, 0.01)
-                params['max_depth'] = st.slider("Max Depth", 2, 10, 3, 1)
-                params['subsample'] = st.slider("Subsample", 0.5, 1.0, 1.0, 0.1)
-            elif selected_model == "SVC":
-                params['C'] = st.slider("C", 0.01, 10.0, 1.0)
-                params['kernel'] = st.selectbox("Kernel", ['rbf', 'linear', 'poly'])
-                params['probability'] = True
-            test_size = st.slider("Test Size", 0.1, 0.5, 0.2, 0.05)
-            random_state = st.number_input("Random Seed", value=42)
-            balance_data = st.checkbox("Balance dataset (SMOTE)", value=False) if problem_type == "Classification" else False
-            feature_selection = st.checkbox("Apply feature selection (Variance Threshold)")
-
-    if selected_model == "--Select Algorithm--":
-        st.info("Select an algorithm to proceed.")
-        return
-
-    if st.button(f"Train {selected_model}", type="primary"):
-        with st.spinner("Training model..."):
-            X = df.drop(columns=[target])
-            y = df[target]
-            numeric_features = get_numeric_columns(X)
-            categorical_features = get_categorical_columns(X)
-            preprocessor = ColumnTransformer(
-                transformers=[
-                    ('num', Pipeline([('imputer', SimpleImputer(strategy='median')), ('scaler', StandardScaler())]), numeric_features),
-                    ('cat', Pipeline([('imputer', SimpleImputer(strategy='most_frequent')), ('onehot', OneHotEncoder(handle_unknown='ignore'))]), categorical_features)
-                ])
-            model_class_map = {
-                "Logistic Regression": LogisticRegression, "Random Forest Classifier": RandomForestClassifier, 
-                "Gradient Boosting": GradientBoostingClassifier, "XGBoost Classifier": xgb.XGBClassifier, 
-                "LightGBM Classifier": lgb.LGBMClassifier, "SVC": SVC, 
-                "Linear Regression": LinearRegression, "Ridge": Ridge, "Lasso": Lasso, 
-                "Random Forest Regressor": RandomForestRegressor, "Gradient Boosting Regressor": GradientBoostingRegressor, 
-                "XGBoost Regressor": xgb.XGBRegressor, "LightGBM Regressor": lgb.LGBMRegressor, "SVR": SVR
-            }
-            model = model_class_map[selected_model](**params)
-            if 'random_state' in model.get_params():
-                model.set_params(random_state=random_state)
-            if "XGBoost" in selected_model:
-                model.set_params(eval_metric='logloss' if problem_type == "Classification" else 'rmse')
-            pipeline_steps = [('preprocessor', preprocessor)]
-            if feature_selection:
-                pipeline_steps.append(('feature_selection', VarianceThreshold(threshold=0.0)))
-            pipeline_steps.append(('model', model))
-            pipeline = Pipeline(pipeline_steps)
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state, stratify=(y if problem_type == "Classification" else None))
-            if balance_data and problem_type == "Classification":
-                smote = SMOTE(random_state=random_state)
-                X_train, y_train = smote.fit_resample(X_train, y_train)
-            pipeline.fit(X_train, y_train)
-            y_pred = pipeline.predict(X_test)
-            st.session_state.model_pipeline = pipeline
-            st.session_state.trained_model = selected_model
-
-        st.success("Model trained!")
-        tab1, tab2 = st.tabs(["Metrics", "Visualizations"])
-        with tab1:
-            if problem_type == "Classification":
-                y_proba = pipeline.predict_proba(X_test)
-                metrics = {
-                    "Accuracy": accuracy_score(y_test, y_pred),
-                    "Precision": precision_score(y_test, y_pred, average='weighted', zero_division=0),
-                    "Recall": recall_score(y_test, y_pred, average='weighted', zero_division=0),
-                    "F1-Score": f1_score(y_test, y_pred, average='weighted', zero_division=0),
-                    "MCC": matthews_corrcoef(y_test, y_pred),
-                    "AUC": roc_auc_score(y_test, y_proba, multi_class='ovr') if len(y.unique()) > 2 else roc_auc_score(y_test, y_proba[:, 1])
-                }
-                col1, col2, col3 = st.columns(3)
-                for i, (k, v) in enumerate(metrics.items()):
-                    (col1 if i < 2 else col2 if i < 4 else col3).metric(k, f"{v:.3f}")
-                cv_scores = cross_val_score(pipeline, X, y, cv=5, scoring='accuracy')
-                st.metric("Cross-Validation Accuracy (Mean)", f"{cv_scores.mean():.3f} ± {cv_scores.std():.3f}")
-                st.subheader("Classification Report")
-                st.dataframe(pd.DataFrame(classification_report(y_test, y_pred, output_dict=True, zero_division=0)).transpose())
-            else:
-                metrics = {
-                    "R²": r2_score(y_test, y_pred),
-                    "MAE": mean_absolute_error(y_test, y_pred),
-                    "RMSE": np.sqrt(mean_squared_error(y_test, y_pred)),
-                    "MSE": mean_squared_error(y_test, y_pred)
-                }
-                col1, col2 = st.columns(2)
-                for i, (k, v) in enumerate(metrics.items()):
-                    (col1 if i < 2 else col2).metric(k, f"{v:.3f}")
-                cv_scores = cross_val_score(pipeline, X, y, cv=5, scoring='r2')
-                st.metric("Cross-Validation R² (Mean)", f"{cv_scores.mean():.3f} ± {cv_scores.std():.3f}")
-
-        with tab2:
-            if problem_type == "Classification":
-                if hasattr(pipeline, "predict_proba"):
-                    y_proba = pipeline.predict_proba(X_test)[:, 1]
-                    fpr, tpr, _ = roc_curve(y_test, y_proba)
-                    fig_roc = px.area(x=fpr, y=tpr, title=f'ROC Curve (AUC = {auc(fpr, tpr):.2f})', 
-                                     labels={'x': 'False Positive Rate', 'y': 'True Positive Rate'})
-                    fig_roc.add_shape(type='line', line=dict(dash='dash'), x0=0, x1=1, y0=0, y1=1)
-                    st.plotly_chart(fig_roc, use_container_width=True)
-                    st.download_button("Download ROC Curve", fig_roc.to_image(format="png"), "roc_curve.png")
-                fig_cm, ax_cm = plt.subplots()
-                cm = confusion_matrix(y_test, y_pred, labels=pipeline.classes_)
-                sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax_cm, 
-                           xticklabels=pipeline.classes_, yticklabels=pipeline.classes_)
-                st.pyplot(fig_cm)
-                st.download_button("Download Confusion Matrix", fig_cm.get_figure().to_image(format="png"), "confusion_matrix.png")
-            else:
-                fig_pred = px.scatter(x=y_test, y=y_pred, labels={'x': 'Actual', 'y': 'Predicted'}, 
-                                    title="Actual vs. Predicted")
-                fig_pred.add_shape(type='line', line=dict(dash='dash'), x0=y_test.min(), y0=y_test.min(), 
-                                  x1=y_test.max(), y1=y_test.max())
-                st.plotly_chart(fig_pred, use_container_width=True)
-                st.download_button("Download Scatter Plot", fig_pred.to_image(format="png"), "actual_vs_predicted.png")
-                residuals = y_test - y_pred
-                fig_res = px.scatter(x=y_pred, y=residuals, labels={'x': 'Predicted', 'y': 'Residuals'}, 
-                                   title="Residuals vs. Predicted")
-                fig_res.add_hline(y=0, line_dash="dash")
-                st.plotly_chart(fig_res, use_container_width=True)
-                st.download_button("Download Residuals Plot", fig_res.to_image(format="png"), "residuals_plot.png")
-            model = pipeline.named_steps['model']
-            if hasattr(model, 'feature_importances_') or hasattr(model, 'coef_'):
-                importances = model.feature_importances_ if hasattr(model, 'feature_importances_') else model.coef_[0]
-                feature_names = pipeline.named_steps['preprocessor'].get_feature_names_out()
-                feature_df = pd.DataFrame({'Feature': feature_names, 'Importance': np.abs(importances)}).sort_values(by='Importance', ascending=False).head(20)
-                fig_imp = px.bar(feature_df, x='Importance', y='Feature', orientation='h', title="Top 20 Features")
-                st.plotly_chart(fig_imp, use_container_width=True)
-                st.download_button("Download Feature Importance", fig_imp.to_image(format="png"), "feature_importance.png")
-
-        st.subheader("Model Export")
-        if st.session_state.model_pipeline:
-            model_buffer = io.BytesIO()
-            pickle.dump(st.session_state.model_pipeline, model_buffer)
-            model_buffer.seek(0)
-            st.download_button("Download Trained Model", model_buffer, f"{st.session_state.trained_model}_model.pkl", "application/octet-stream")
-            pred_df = pd.DataFrame({'Actual': y_test, 'Predicted': y_pred})
-            pred_csv = pred_df.to_csv(index=False).encode('utf-8')
-            st.download_button("Download Predictions", pred_csv, "predictions.csv", "text/csv")
-
-def render_history_page():
-    st.header("📜 Action History")
-    if not st.session_state.history:
-        st.info("No actions recorded.")
-    else:
-        for idx, action in enumerate(st.session_state.history):
-            st.markdown(f"**Action {idx + 1}:** {action['description']}")
-            if action['code']:
-                st.code(action['code'], language='python')
-
-def render_download_page():
-    st.header("📥 Download & Export")
-    if st.session_state.df is None:
-        st.warning("No data to download.")
+        st.warning("Please upload a file first.")
         return
 
     df = st.session_state.df
-    st.subheader("Data Preview")
-    st.dataframe(df.head())
-    st.info(f"Dataset: {df.shape[0]} rows, {df.shape[1]} columns")
-    csv = df.to_csv(index=False).encode('utf-8')
-    filename = f"cleaned_{st.session_state.file_name or 'data.csv'}"
-    st.download_button("Download CSV", csv, filename, "text/csv", type="primary")
+    all_cols = df.columns.tolist()
 
-    st.subheader("Export Python Script")
-    script = """
-import pandas as pd
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "📅 Convert to Datetime",
+        "📊 Analyze Column Types", 
+        "✂️ Split Column", 
+        "🗑️ Drop Columns", 
+        "✏️ Rename Column", 
+        "🔄 Change Column Type"
+    ])
+  # =========================================================================
+    # --- CORRECTED FEATURE: Intelligent Date Conversion with Two Engines ---
+    # =========================================================================
+    with tab1:
+        st.subheader("Intelligent Date Conversion")
+        st.markdown("Convert columns with mixed date formats into a standardized datetime format.")
 
-# Load data
-df = pd.read_csv('input.csv')
+        candidate_cols = get_categorical_columns(df)
+        if not candidate_cols:
+            st.info("No text-based (object) columns found to convert.")
+        else:
+            selected_col = st.selectbox(
+                "1. Select column to convert to datetime:",
+                options=candidate_cols,
+                key="date_convert_select"
+            )
 
-# Applied transformations
-"""
-    for action in st.session_state.history:
-        if action['code']:
-            script += f"{action['code']}\n"
-    script += "\n# Save cleaned data\ndf.to_csv('cleaned_output.csv', index=False)"
-    st.download_button("Download Python Script", script.encode('utf-8'), "cleaning_script.py", "text/x-python")
+            if selected_col:
+                st.markdown("#### 2. Choose Your Parsing Engine")
+                
+                parser_engine = st.radio(
+                    "Select a parser:",
+                    ["**Pandas (Fast)** - Good for standard formats like YYYY-MM-DD.", 
+                     "**Dateparser (Flexible & Robust)** - Best for messy, mixed formats like 'March 3, 2021'."],
+                    index=1
+                )
 
-def render_smart_clean_page():
-    st.header("⚙️ Smart Clean")
+                dayfirst_param = st.checkbox(
+                    "Assume Day is First (for formats like DD/MM/YYYY)",
+                    value=False,
+                    help="Crucial for both engines to interpret ambiguous dates like '01/04/2021'."
+                )
+
+                st.markdown("#### 3. Preview Results")
+                try:
+                    # Helper function with the CORRECTED dateparser setting
+                    def parse_with_dateparser(date_string):
+                        if pd.isna(date_string): return pd.NaT
+                        # THIS IS THE FIX: Use 'PREFER_DAY_OF_MONTH' instead of 'DAY_FIRST'
+                        dateparser_settings = {
+                            'PREFER_DAY_OF_MONTH': 'first' if dayfirst_param else 'last'
+                        }
+                        return dateparser.parse(str(date_string), settings=dateparser_settings)
+
+                    if "Pandas" in parser_engine:
+                        preview_series = pd.to_datetime(df[selected_col].astype(str).str.strip(), dayfirst=dayfirst_param, errors='coerce')
+                    else: # Dateparser engine
+                        preview_series = df[selected_col].apply(parse_with_dateparser)
+
+                    preview_df = pd.DataFrame({
+                        f"Original Text in '{selected_col}'": df[selected_col].head(20),
+                        "Parsed Datetime (YYYY-MM-DD)": preview_series.head(20)
+                    })
+                    st.dataframe(preview_df.dropna(subset=[f"Original Text in '{selected_col}'"]), use_container_width=True)
+                    
+                    failed_parses = preview_series.isna().sum() - df[selected_col].isna().sum()
+                    if failed_parses > 0:
+                        st.warning(f"Warning: {failed_parses} values could not be parsed and were converted to NaT (Not a Time).")
+
+                except Exception as e:
+                    st.error(f"An error occurred during preview generation: {e}")
+
+                if st.button("✅ Apply Datetime Conversion", type="primary"):
+                    if "Pandas" in parser_engine:
+                        st.session_state.df[selected_col] = pd.to_datetime(df[selected_col].astype(str).str.strip(), dayfirst=dayfirst_param, errors='coerce')
+                    else: # Dateparser engine
+                        st.session_state.df[selected_col] = df[selected_col].apply(parse_with_dateparser)
+                    
+                    log_action(f"Converted '{selected_col}' to datetime using {parser_engine.split(' ')[0]} engine.")
+                    st.success(f"Successfully converted '{selected_col}' to a standardized datetime format!")
+                    st.rerun()
+
+    # =========================================================================
+    # --- All Other Column Operations ---
+    # =========================================================================
+    with tab2:
+        st.subheader("Analyze Column Data Types")
+        numeric_cols = get_numeric_columns(df)
+        categorical_cols = get_categorical_columns(df)
+        datetime_cols = get_datetime_columns(df)
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("#### 🔢 Numeric Columns"); st.dataframe(pd.DataFrame(numeric_cols, columns=["Column Name"]), use_container_width=True)
+            st.markdown("---")
+            st.markdown("#### 📅 Datetime Columns"); st.dataframe(pd.DataFrame(datetime_cols, columns=["Column Name"]), use_container_width=True)
+        with col2:
+            st.markdown("#### 🅰️ Categorical / Object Columns"); st.dataframe(pd.DataFrame(categorical_cols, columns=["Column Name"]), use_container_width=True)
+
+    with tab3:
+        st.subheader("Split a Column into Categorical and Numerical Parts")
+        candidate_cols_split = get_categorical_columns(df)
+        if not candidate_cols_split:
+            st.info("No suitable (text-based) columns found to split.")
+        else:
+            with st.form("split_column_form"):
+                source_col = st.selectbox("Select column to split:", options=candidate_cols_split)
+                col1, col2 = st.columns(2)
+                with col1: new_cat_col_name = st.text_input("New Text Column Name", value=f"{source_col}_cat")
+                with col2: new_num_col_name = st.text_input("New Number Column Name", value=f"{source_col}_num")
+                drop_original = st.checkbox("Drop original column?", value=True)
+                submitted = st.form_submit_button("Apply Split")
+                if submitted:
+                    st.session_state.df[new_cat_col_name] = df[source_col].str.extract(r'([^\d]*)', expand=False).str.strip()
+                    numeric_part = df[source_col].str.extract(r'(\d+)', expand=False)
+                    st.session_state.df[new_num_col_name] = pd.to_numeric(numeric_part, errors='coerce')
+                    log_desc = f"Split '{source_col}' into '{new_cat_col_name}' and '{new_num_col_name}'."
+                    if drop_original:
+                        st.session_state.df.drop(columns=[source_col], inplace=True)
+                        log_desc += f" Original column dropped."
+                    log_action(log_desc)
+                    st.rerun()
+
+    with tab4:
+        st.subheader("Drop Unnecessary Columns")
+        cols_to_drop = st.multiselect("Select columns to remove:", options=all_cols)
+        if st.button("Drop Selected Columns"):
+            st.session_state.df.drop(columns=cols_to_drop, inplace=True)
+            log_action(f"Dropped columns: {', '.join(cols_to_drop)}")
+            st.rerun()
+
+    with tab5:
+        st.subheader("Rename a Column")
+        col_to_rename = st.selectbox("Select a column to rename:", options=all_cols, key="rename_select")
+        new_col_name = st.text_input("Enter the new column name:", value=col_to_rename)
+        if st.button("Rename Column"):
+            st.session_state.df.rename(columns={col_to_rename: new_col_name}, inplace=True)
+            log_action(f"Renamed '{col_to_rename}' to '{new_col_name}'.")
+            st.rerun()
+
+    with tab6:
+        st.subheader("Change Column Data Type (Manual)")
+        col_to_change = st.selectbox("Select column:", options=all_cols, key="type_change_select")
+        new_type = st.selectbox("Select new data type:", ['object (string)', 'int64', 'float64', 'category', 'bool'])
+        if st.button("Apply Type Change"):
+            try:
+                st.session_state.df[col_to_change] = st.session_state.df[col_to_change].astype(new_type)
+                log_action(f"Manually changed type of '{col_to_change}' to {new_type}.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Conversion failed. Error: {e}")
+
+
+# ==================================================================================================
+# 5.8 ML MODELER PAGE (Corrected and Properly Encapsulated)
+# ==================================================================================================
+# ==================================================================================================
+# 5.8 ML MODELER PAGE (Upgraded with Performance Visualizations)
+# ==================================================================================================
+# ==================================================================================================
+# 5.8 ML MODELER PAGE (Upgraded with Comprehensive Metrics and Visualizations)
+# ==================================================================================================
+# ==================================================================================================
+# 5.8 ML MODELER PAGE (Corrected with Hyperparameter Tuning AND Comprehensive Metrics)
+# ==================================================================================================
+def render_ml_modeler_page():
+    """Renders the ML page with hyperparameter tuning, full metrics, and visualizations."""
+    st.header("🤖 ML Modeler")
+    st.markdown("Select an algorithm, tune its hyperparameters, and evaluate its performance in detail.")
+
     if st.session_state.df is None:
-        st.warning("Please upload a file.")
+        st.warning("Please upload and prepare your data before modeling.")
         return
 
     df = st.session_state.df.copy()
-    st.subheader("Automated Cleaning Suggestions")
-    missing_data = df.isnull().sum()
-    missing_cols = missing_data[missing_data > 0].index.tolist()
-    duplicates = df.duplicated().sum()
-    numeric_cols = get_numeric_columns(df)
-    outliers_detected = {col: len(df[col][np.abs(zscore(df[col].dropna())) > 3]) for col in numeric_cols}
 
-    st.markdown("#### Data Quality Report")
-    if missing_cols:
-        st.warning(f"Missing values in {', '.join(missing_cols)}")
-    if duplicates:
-        st.warning(f"{duplicates} duplicate rows detected")
-    for col, count in outliers_detected.items():
-        if count > 0:
-            st.warning(f"{count} potential outliers in {col}")
+    # --- Sidebar for Model Configuration ---
+    with st.sidebar:
+        st.header("1. Define Your Goal")
+        target_variable = st.selectbox("Select Target Column (Y)", df.columns, help="This is the column to predict.")
+        
+        df.dropna(subset=[target_variable], inplace=True)
+        if df.empty:
+            st.error("DataFrame is empty after removing rows with missing targets.")
+            st.stop()
 
-    if st.button("Apply Smart Cleaning", type="primary"):
-        with st.spinner("Applying automated cleaning..."):
-            # Handle missing values
-            for col in missing_cols:
-                if pd.api.types.is_numeric_dtype(df[col]):
-                    df[col].fillna(df[col].median(), inplace=True)
-                    log_action(f"Imputed '{col}' with median", f"df['{col}'].fillna(df['{col}'].median(), inplace=True)")
-                else:
-                    df[col].fillna(df[col].mode()[0], inplace=True)
-                    log_action(f"Imputed '{col}' with mode", f"df['{col}'].fillna(df['{col}'].mode()[0], inplace=True)")
-            # Remove duplicates
-            if duplicates:
-                df.drop_duplicates(keep='first', inplace=True)
-                log_action(f"Removed {duplicates} duplicates", "df.drop_duplicates(keep='first', inplace=True)")
-            # Remove outliers
-            for col in numeric_cols:
-                if outliers_detected[col] > 0:
-                    z_scores = zscore(df[col].dropna())
-                    df = df.loc[df[col].dropna()[np.abs(z_scores) <= 3].index]
-                    log_action(f"Removed outliers from '{col}' (Z-Score)", 
-                              f"df = df.loc[df['{col}'].dropna()[np.abs(zscore(df['{col}'].dropna())) <= 3].index]")
-            st.session_state.df = df
-            st.success("Smart cleaning applied!")
-            st.rerun()
+        problem_type = "Regression" if pd.api.types.is_numeric_dtype(df[target_variable].dtype) and df[target_variable].nunique() > 25 else "Classification"
+        st.info(f"Problem Type: **{problem_type}**")
+
+        st.header("2. Choose Your Model")
+        placeholder_text = "--Select an Algorithm--"
+        if problem_type == "Classification":
+            model_options = [placeholder_text, "Logistic Regression", "Random Forest Classifier", "Gradient Boosting", "XGBoost Classifier", "LightGBM Classifier", "SVC", "KNeighbors Classifier", "Decision Tree Classifier"]
+        else:
+            model_options = [placeholder_text, "Linear Regression", "Ridge", "Lasso", "Random Forest Regressor", "Gradient Boosting Regressor", "XGBoost Regressor", "LightGBM Regressor", "SVR"]
+        
+        selected_model_name = st.selectbox("Select an algorithm:", model_options, index=0)
+
+    # --- Main Page Logic ---
+    if selected_model_name == placeholder_text:
+        st.info("💡 Please select an algorithm from the sidebar to configure its parameters and train it.")
+        return
+
+    # >>>>> HYPERPARAMETER TUNING LOGIC IS RESTORED HERE <<<<<
+    with st.sidebar:
+        st.header("3. Tune Model Hyperparameters")
+        params = {}
+        
+        if selected_model_name == "Logistic Regression":
+            params['C'] = st.slider("Regularization (C)", 0.01, 10.0, 1.0, 0.01)
+            params['solver'] = st.selectbox("Solver", ['liblinear', 'lbfgs', 'saga'])
+            params['max_iter'] = st.slider("Max Iterations", 100, 1000, 100, 50)
+        elif selected_model_name in ["Random Forest Classifier", "Random Forest Regressor"]:
+            params['n_estimators'] = st.slider("Number of Trees", 10, 1000, 100, 10)
+            params['max_depth'] = st.slider("Max Depth of Trees", 2, 50, 10, 1)
+            params['min_samples_leaf'] = st.slider("Min Samples per Leaf", 1, 20, 1, 1)
+        elif selected_model_name in ["Gradient Boosting", "Gradient Boosting Regressor"]:
+            params['n_estimators'] = st.slider("Number of Estimators", 10, 1000, 100, 10)
+            params['learning_rate'] = st.slider("Learning Rate", 0.01, 0.5, 0.1, 0.01)
+            params['max_depth'] = st.slider("Max Depth", 2, 15, 3, 1)
+        elif selected_model_name in ["XGBoost Classifier", "XGBoost Regressor"]:
+            params['n_estimators'] = st.slider("Number of Estimators", 10, 1000, 100, 10)
+            params['learning_rate'] = st.slider("Learning Rate", 0.01, 0.5, 0.1, 0.01)
+            params['max_depth'] = st.slider("Max Depth", 2, 15, 3, 1)
+            params['subsample'] = st.slider("Subsample", 0.5, 1.0, 1.0, 0.1)
+        elif selected_model_name == "SVC":
+             params['C'] = st.slider("Regularization (C)", 0.01, 100.0, 1.0)
+             params['kernel'] = st.selectbox("Kernel", ['rbf', 'linear', 'poly'])
+             params['probability'] = True # Always enable for metrics/plots
+        # ... Add any other elif blocks for other models here ...
+
+        with st.expander("Advanced Settings"):
+            test_size = st.slider("Test Set Size", 0.1, 0.5, 0.2, 0.05)
+            random_state = st.number_input("Random Seed", value=42)
+
+    if st.button(f"🚀 Train {selected_model_name}", type="primary", use_container_width=True):
+        with st.spinner("Preparing data and training the model with your parameters..."):
+            # (Pipeline and training code is the same)
+            X = df.drop(columns=[target_variable])
+            y = df[target_variable]
+            numeric_features = X.select_dtypes(include=np.number).columns.tolist()
+            categorical_features = X.select_dtypes(exclude=np.number).columns.tolist()
+            numeric_transformer = Pipeline(steps=[('imputer', SimpleImputer(strategy='median')), ('scaler', StandardScaler())])
+            categorical_transformer = Pipeline(steps=[('imputer', SimpleImputer(strategy='most_frequent')), ('onehot', OneHotEncoder(handle_unknown='ignore'))])
+            preprocessor = ColumnTransformer(transformers=[('num', numeric_transformer, numeric_features), ('cat', categorical_transformer, categorical_features)])
+            model_class_map = {
+                "Logistic Regression": LogisticRegression, "Random Forest Classifier": RandomForestClassifier, "Gradient Boosting": GradientBoostingClassifier,
+                "XGBoost Classifier": xgb.XGBClassifier, "LightGBM Classifier": lgb.LGBMClassifier, "SVC": SVC,
+                "KNeighbors Classifier": KNeighborsClassifier, "Decision Tree Classifier": DecisionTreeClassifier, "Linear Regression": LinearRegression,
+                "Ridge": Ridge, "Lasso": Lasso, "Random Forest Regressor": RandomForestRegressor,
+                "Gradient Boosting Regressor": GradientBoostingRegressor, "XGBoost Regressor": xgb.XGBRegressor,
+                "LightGBM Regressor": lgb.LGBMRegressor, "SVR": SVR
+            }
+            ModelClass = model_class_map[selected_model_name]
+            
+            # Add random_state to params if model supports it
+            if 'random_state' in ModelClass().get_params():
+                params['random_state'] = random_state
+            
+            # Handle special cases for certain models
+            if "XGBoost" in selected_model_name:
+                params['eval_metric'] = 'logloss' if problem_type == "Classification" else 'rmse'
+            
+            model = ModelClass(**params) # Use the user-tuned params
+            ml_pipeline = Pipeline(steps=[('preprocessor', preprocessor), ('model', model)])
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state, stratify=(y if problem_type == "Classification" else None))
+            ml_pipeline.fit(X_train, y_train)
+            y_pred = ml_pipeline.predict(X_test)
+
+        st.success("Model training complete!")
+        st.header("Model Performance")
+        
+        tab1, tab2 = st.tabs(["📊 Metrics Dashboard", "📈 Visualizations"])
+
+        with tab1:
+            # >>>>> THE NEW COMPREHENSIVE METRICS DASHBOARD <<<<<
+            if problem_type == "Classification":
+                from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, matthews_corrcoef
+                y_proba = ml_pipeline.predict_proba(X_test)
+                acc = accuracy_score(y_test, y_pred)
+                prec = precision_score(y_test, y_pred, average='weighted', zero_division=0)
+                recall = recall_score(y_test, y_pred, average='weighted', zero_division=0)
+                f1 = f1_score(y_test, y_pred, average='weighted', zero_division=0)
+                mcc = matthews_corrcoef(y_test, y_pred)
+                auc_score = roc_auc_score(y_test, y_proba, multi_class='ovr', average='weighted') if len(y.unique()) > 2 else roc_auc_score(y_test, y_proba[:, 1])
+
+                st.subheader("Performance Metrics")
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Accuracy", f"{acc:.3f}")
+                col2.metric("F1-Score (Weighted)", f"{f1:.3f}")
+                col3.metric("AUC (ROC)", f"{auc_score:.3f}")
+                col4, col5, col6 = st.columns(3)
+                col4.metric("Precision (Weighted)", f"{prec:.3f}")
+                col5.metric("Recall (Weighted)", f"{recall:.3f}")
+                col6.metric("MCC", f"{mcc:.3f}")
+
+                st.subheader("Classification Report")
+                st.dataframe(pd.DataFrame(classification_report(y_test, y_pred, output_dict=True, zero_division=0)).transpose())
+            else: # Regression
+                from sklearn.metrics import mean_absolute_error
+                r2 = r2_score(y_test, y_pred)
+                mse = mean_squared_error(y_test, y_pred)
+                rmse = np.sqrt(mse)
+                mae = mean_absolute_error(y_test, y_pred)
+                st.subheader("Performance Metrics")
+                col1, col2 = st.columns(2)
+                col3, col4 = st.columns(2)
+                col1.metric("R-squared (R²)", f"{r2:.3f}")
+                col2.metric("Mean Absolute Error (MAE)", f"{mae:.3f}")
+                col3.metric("Root Mean Squared Error (RMSE)", f"{rmse:.3f}")
+                col4.metric("Mean Squared Error (MSE)", f"{mse:.3f}")
+
+        with tab2:
+            # (The visualization code remains the same)
+            st.subheader("Performance Plots")
+            if problem_type == "Classification":
+                from sklearn.metrics import roc_curve, auc, precision_recall_curve
+                if hasattr(ml_pipeline, "predict_proba"):
+                    y_proba = ml_pipeline.predict_proba(X_test)[:, 1]
+                    fpr, tpr, _ = roc_curve(y_test, y_proba)
+                    roc_auc = auc(fpr, tpr)
+                    fig_roc = px.area(x=fpr, y=tpr, title=f'ROC Curve (AUC = {roc_auc:.2f})', labels=dict(x='False Positive Rate', y='True Positive Rate'))
+                    fig_roc.add_shape(type='line', line=dict(dash='dash'), x0=0, x1=1, y0=0, y1=1)
+                    st.plotly_chart(fig_roc, use_container_width=True)
+                st.markdown("#### Confusion Matrix")
+                fig_cm, ax_cm = plt.subplots()
+                cm = confusion_matrix(y_test, y_pred, labels=ml_pipeline.classes_)
+                sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax_cm, xticklabels=ml_pipeline.classes_, yticklabels=ml_pipeline.classes_)
+                st.pyplot(fig_cm)
+            else: # Regression
+                st.markdown("#### Actual vs. Predicted Values")
+                fig_pred = px.scatter(x=y_test, y=y_pred, labels={'x': 'Actual Values', 'y': 'Predicted Values'}, title="Actual vs. Predicted")
+                fig_pred.add_shape(type='line', line=dict(dash='dash'), x0=y_test.min(), y0=y_test.min(), x1=y_test.max(), y1=y_test.max())
+                st.plotly_chart(fig_pred, use_container_width=True)
+                st.markdown("#### Residuals Plot")
+                residuals = y_test - y_pred
+                fig_res = px.scatter(x=y_pred, y=residuals, labels={'x': 'Predicted Values', 'y': 'Residuals'}, title="Residuals vs. Predicted Values")
+                fig_res.add_hline(y=0, line_dash="dash")
+                st.plotly_chart(fig_res, use_container_width=True)
+            model_step = ml_pipeline.named_steps['model']
+            if hasattr(model_step, 'feature_importances_') or hasattr(model_step, 'coef_'):
+                st.markdown("#### Feature Importance")
+                importances = model_step.feature_importances_ if hasattr(model_step, 'feature_importances_') else model_step.coef_[0]
+                feature_names = ml_pipeline.named_steps['preprocessor'].get_feature_names_out()
+                feature_importance_df = pd.DataFrame({'Feature': feature_names, 'Importance': np.abs(importances)}).sort_values(by='Importance', ascending=False).head(20)
+                fig_imp = px.bar(feature_importance_df, x='Importance', y='Feature', orientation='h', title="Top 20 Most Important Features")
+                st.plotly_chart(fig_imp, use_container_width=True)
+# ---------------------------------- 5.9 DOWNLOAD PAGE -------------------------------------------
+def render_download_page():
+    """Renders the final page for downloading the cleaned data."""
+    st.header("📥 Download & Export")
+    st.markdown("Your data has been processed! Download the cleaned version as a new CSV file.")
+    st.balloons()
+    
+    if st.session_state.df is None:
+        st.warning("No data available to download.")
+        return
+        
+    df_cleaned = st.session_state.df
+    st.subheader("Final Data Preview")
+    st.dataframe(df_cleaned.head())
+    st.info(f"The final dataset has **{df_cleaned.shape[0]} rows** and **{df_cleaned.shape[1]} columns**.")
+
+    # --- Download Button ---
+    csv = df_cleaned.to_csv(index=False).encode('utf-8')
+    suggested_filename = f"cleaned_{st.session_state.file_name}" if st.session_state.file_name else "cleaned_data.csv"
+    
+    st.download_button(
+        label="📥 Download Cleaned CSV",
+        data=csv,
+        file_name=suggested_filename,
+        mime="text/csv",
+        type="primary",
+        help="Click to save the cleaned data to your local machine."
+    )
+
+# ==================================================================================================
+# 6. MAIN APPLICATION ORCHESTRATOR
+# ==================================================================================================
 
 def main():
-    st.set_page_config(page_title=APP_TITLE, page_icon=APP_ICON, layout="wide", initial_sidebar_state="expanded")
+    """
+    The main function that orchestrates the Streamlit application.
+    It sets up the page configuration, initializes state, and handles navigation.
+    """
+    # --- Page Configuration ---
+    st.set_page_config(
+        page_title=APP_TITLE,
+        page_icon=APP_ICON,
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
+
+    # --- Initialize Session State (crucial for stability) ---
     initialize_session_state()
+
+    # --- Sidebar Navigation ---
     with st.sidebar:
-        st.header("⚙️ Workflow")
-        available_pages = list(PAGES.keys()) if st.session_state.file_uploaded else [list(PAGES.keys())[0]]
+        st.header("⚙️ Cleaning Workflow")
+
+        # 1. Determine available pages based on file upload status
+        if st.session_state.file_uploaded:
+            available_pages = list(PAGES.keys())
+        else:
+            available_pages = [list(PAGES.keys())[0]]
+
+        # 2. Defensive check for active page validity
         if st.session_state.active_page not in available_pages:
             st.session_state.active_page = available_pages[0]
-        st.session_state.active_page = st.radio("Go to:", available_pages, index=available_pages.index(st.session_state.active_page))
+
+        # 3. Create the radio button with a guaranteed valid index
+        default_index = available_pages.index(st.session_state.active_page)
+        st.session_state.active_page = st.radio(
+            "Go to:",
+            options=available_pages,
+            index=default_index,
+            key='navigation_radio'
+        )
+        
+        st.markdown("---")
+
+        # --- Sidebar Action Buttons ---
         if st.session_state.file_uploaded:
-            if st.button("Undo Last Action"):
-                undo_last_action()
-            if st.button("Reset Changes"):
+            if st.button("↩️ Reset All Changes", help="Revert to the originally uploaded data."):
                 st.session_state.df = st.session_state.df_original.copy()
                 st.session_state.history = []
-                st.session_state.undo_stack = []
-                log_action("Reset to original file")
+                log_action("All changes have been reset to the original file state.")
                 st.rerun()
-            if st.button("Upload New File"):
-                reset_app_state()
+
+            if st.button("⬆️ Upload a New File", help="Reset the entire app and upload a new file."):
+                reset_app_state() # This function already calls rerun
+
         st.markdown("---")
         st.info("Created by Chohan.")
 
-    page_function = globals().get(PAGES.get(st.session_state.active_page, "render_home_page"))
-    page_function()
+    # --- Page Routing ---
+    # Retrieve the function name from the PAGES dictionary and call it
+    page_function_name = PAGES.get(st.session_state.active_page)
+    if page_function_name:
+        # Use getattr to dynamically call the correct render function
+        page_function = globals().get(page_function_name)
+        if page_function:
+            page_function()
+        else:
+            st.error(f"Error: Could not find the function {page_function_name}.")
+            render_home_page()
+    else:
+        render_home_page() # Fallback to home page
+
 
 if __name__ == "__main__":
     main()
