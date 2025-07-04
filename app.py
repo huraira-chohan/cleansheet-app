@@ -357,7 +357,7 @@ def render_column_management_page():
         with col1:
             st.markdown("#### Numeric Columns")
             st.dataframe(pd.DataFrame(numeric_cols, columns=["Column Name"]))
-  st.markdown("#### Datetime Columns")
+            st.markdown("#### Datetime Columns")
             st.dataframe(pd.DataFrame(datetime_cols, columns=["Column Name"]))
         with col2:
             st.markdown("#### Categorical Columns")
