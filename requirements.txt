@@ -16,6 +16,7 @@ word2number
 scikit-learn
 plotly
 matplotlib
+imblearn
 seaborn
 xgboost
 lightgbm
