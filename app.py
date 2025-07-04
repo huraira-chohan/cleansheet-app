@@ -864,7 +864,8 @@ def render_column_management_page():
         "✏️ Rename Column", 
         "🔄 Change Column Type"
     ])
-  # =========================================================================
+
+    # =========================================================================
     # --- CORRECTED FEATURE: Intelligent Date Conversion with Two Engines ---
     # =========================================================================
     with tab1:
